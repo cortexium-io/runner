@@ -49,7 +49,25 @@ the 76 planned images leave four diagnostic slots within the existing 80-image
 limit. Repeated geometry failures identify a representative image and retain each
 failed state's own metrics; omitted images are explicit, never passing evidence.
 
-Authored best-effort event-ingestion 4xx are visible diagnostics with their source
-contract and safe low-cardinality event dimensions. Gameplay/unrecognized API
-errors, all 5xx and page exceptions still block acceptance. This classification
-does not claim telemetry works or weaken any journey/geometry assertion.
+One explicit authored best-effort tracker contract covers only POST event and
+page-view ingestion. Its 4xx and transport failures remain visible diagnostics;
+gameplay/unrecognized HTTP errors, all API 5xx and page exceptions still block
+acceptance. Unknown API transport handling is unchanged. This classification
+does not claim analytics works or weaken any journey/geometry assertion.
+
+Request-time snapshots retain the initiating journey/viewport and a public route
+category, plus known telemetry payload shape, size/hash and safe event dimensions.
+Puzzle codes, query/fragment values, full referrers, unrecorded field names, private
+API payloads and raw bodies are excluded. Small declared uncompressed response
+bodies (at most 1KiB) retain only size/hash and a recognized server-error category;
+otherwise the body is explicitly unavailable. No extra request, HAR or trace is
+created. At most the existing 30 errors and 30 diagnostics receive body enrichment.
+Only actual failing HTTP responses enqueue that work: it drains before context
+close and archive finalization, including close-time responses. The existing 12s
+browser deadline aborts stalled body collection; unavailable body facts and a
+timeout count remain visible without failing gameplay for optional diagnostics.
+An abortable read settles enrichment independently of a stuck body promise;
+late completion cannot overwrite its unavailable facts. Real cleanup errors still
+propagate. No network-idle or header wait is added to
+ordinary navigation. The payload projection counts unrecorded fields and does
+not claim to validate the complete server DTO.

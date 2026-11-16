@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryDimensions,neighborGeometry} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
@@ -15,11 +15,19 @@ const report={schema:1,status:'failed',complete:false,browser_closed:false,engin
   'Secondary offscreen actions use browser scrolling before trusted clicks/taps; primary touch geometry is checked without automatic scrolling.',
   'Metrics do not judge branding, hierarchy, icon style, spacing or visual quality. Independent full viewport image review is mandatory.',
   'At most four additional failure-state images supplement the 76 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
-  'Authored best-effort event-ingestion 4xx remain explicit diagnostics; required/unclassified API errors, every 5xx and page exceptions block acceptance.',
+  'Both authored best-effort telemetry POST channels retain 4xx/transport diagnostics; every API5xx, required/unclassified HTTP error and page exception still blocks acceptance. Diagnostics do not establish analytics health.',
+  'HTTP diagnostic bodies are read only with an uncompressed declared size at most1KiB; raw bodies, puzzle codes, queries and full referrers are never retained.',
+  'Diagnostic-body capture timeouts retain unavailable facts and a count; they do not establish analytics health or fail gameplay. Real cleanup failures remain blocking.',
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
+report.telemetry_contract=telemetryContract;
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
 let activeBrowser,current,activeCase,stopping=false,imageBytes=0,profile=0;
 const observations=new WeakMap(),failureImages=new Map();
+const requestFacts=new WeakMap(),pendingResponses=new Map(),browserTimeoutMS=12000;
+const closeContext=async context=>{
+  const facts=await closeAfterResponses(context,pendingResponses,browserTimeoutMS);
+  if(facts.capture_timed_out)report.diagnostic_body_timeouts=(report.diagnostic_body_timeouts??0)+1;
+};
 const functionalJourneys=['entry-pin-cancel-history','touch-in-progress-resize','desktop-in-progress-resize','side-swap-persistence','hint-explanation-apply-undo','completion-new-resume','touch-completion-new-resume','desktop-keyboard-focus','appearance-controls'];
 const save=()=>writeFile(path.join(options.evidence,'browser.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
 const pauseForHold=()=>new Promise(resolve=>setTimeout(resolve,900)); // Actual gesture duration exceeds the app's 750ms touch threshold; never a readiness sleep.
@@ -88,7 +96,7 @@ async function inContext(browser,engine,viewport,operation) {
   catch(error) {
     if(activeCase){if(error.interaction)activeCase.interaction=error.interaction;await failedState(page,activeCase,activeCase.id)}
     throw error;
-  } finally {await context.close()}
+  } finally {await closeContext(context)}
 }
 
 async function palette(page) {
@@ -107,25 +115,44 @@ async function contextFor(browser,viewport,scheme='light') {
   });
   const page=await context.newPage();
   current=page;
-  page.setDefaultTimeout(12000);
+  page.setDefaultTimeout(browserTimeoutMS);
   page.on('pageerror',error=>{if(report.errors.length<30)report.errors.push({engine:browser.browserType().name(),message:bounded(error.message)})});
+  page.on('request',request=>{
+    const url=new URL(request.url());
+    if(url.origin!==options.origin||!url.pathname.startsWith('/api/'))return;
+    try{requestFacts.set(request,apiRequestFacts(request,{document:page.url(),journey:activeCase?.id??'fresh-geometry',viewport:page.viewportSize(),origin:options.origin}))}
+    catch{requestFacts.set(request,{method:request.method(),path:url.pathname,initiator:{unavailable:'request facts could not be collected'}})}
+  });
+  const retainFailure=(failure,response)=>{
+    const rows=failure.blocking?report.errors:report.diagnostics;
+    if(rows.length>=30){report.http_diagnostics_omitted=(report.http_diagnostics_omitted??0)+1;return}
+    rows.push(failure);
+    if(!response||!failure.payload)return;
+    const controller=new AbortController();
+    const work=apiResponseFacts(response,controller.signal).then(facts=>{failure.response=facts}).catch(()=>{failure.response={body:'unavailable',reason:'response facts could not be collected'}});
+    pendingResponses.set(work,controller);work.then(()=>pendingResponses.delete(work));
+  };
   page.on('response',response=>{
     const url=new URL(response.url());
     if(url.origin===options.origin&&response.status()>=400&&['document','script','stylesheet'].includes(response.request().resourceType())&&report.document_failures.length<12)
       report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:response.request().resourceType(),status:response.status()});
     if(url.origin===options.origin&&response.status()>=400&&url.pathname.startsWith('/api/')) {
-      const request=response.request(),failure=classifyFailure({kind:'http',engine:browser.browserType().name(),method:request.method(),path:url.pathname,status:response.status(),status_text:response.statusText().slice(0,80)});
-      if(failure.classification==='best-effort-telemetry') {
-        try{Object.assign(failure,telemetryDimensions(request.postDataJSON()))}catch{}
-      }
-      const rows=failure.blocking?report.errors:report.diagnostics;
-      if(rows.length<30)rows.push(failure);
+      const request=response.request(),facts=requestFacts.get(request)??{method:request.method(),path:url.pathname,initiator:{unavailable:'request start was not observed'}};
+      const failure=classifyFailure({...facts,kind:'http',engine:browser.browserType().name(),status:response.status()});
+      if(facts.payload?.event_name)Object.assign(failure,{event_name:facts.payload.event_name,product_area:facts.payload.product_area});
+      retainFailure(failure,response);
     }
   });
   page.on('requestfailed',request=>{
     const url=new URL(request.url());
     if(url.origin===options.origin&&['document','script','stylesheet'].includes(request.resourceType())&&report.document_failures.length<12)
       report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:request.resourceType(),message:boundedFailure(request.failure()?.errorText,500)});
+    const facts=requestFacts.get(request);
+    if(facts) {
+      const failure=classifyFailure({...facts,kind:'transport',engine:browser.browserType().name(),response:{body:'unavailable',reason:'no HTTP response'}});
+      // Preserve the existing treatment of unknown API transport failures.
+      if(!failure.blocking)retainFailure(failure);
+    }
   });
   return {context,page};
 }
@@ -226,7 +253,7 @@ async function freshGeometry(browser,engine,recipe) {
       if(darkImage)await capture(page,engine,darkImage);
     } catch(error) {
       report.journeys.push({engine,id:'fresh-'+viewport.id,status:'failed',failure:bounded(error.message)});
-    } finally {await context.close()}
+    } finally {await closeContext(context)}
   }
 }
 
@@ -593,11 +620,11 @@ try {
       activeBrowser=await engine.type.launch({executablePath:engine.executable,headless:true});
       report.engines.push({name:engine.name,version:activeBrowser.version(),executable:engine.executable,input:'headless emulation'});
       const {context,page}=await contextFor(activeBrowser,viewports.find(v=>v.id==='phone-390'));
-      try{await check(engine.name,'normal-ui-admission',async()=>{recipe=await createBoard(page,true);return {path:recipe.boardPath,identity:recipe.identity,publication:recipe.publication}})}finally{await context.close()}
+      try{await check(engine.name,'normal-ui-admission',async()=>{recipe=await createBoard(page,true);return {path:recipe.boardPath,identity:recipe.identity,publication:recipe.publication}})}finally{await closeContext(context)}
       const ready=recipe&&await afterReopen(async()=>{
         const {context,page}=await contextFor(activeBrowser,viewports.find(v=>v.id==='phone-390'));
         try{return await check(engine.name,'public-code-reopen',()=>load(page,recipe.boardPath),{rows:report.prerequisites,failureStatus:'blocked'})}
-        finally{await context.close()}
+        finally{await closeContext(context)}
       },async()=>{
         await freshGeometry(activeBrowser,engine.name,recipe);
         await check(engine.name,'entry-pin-cancel-history',()=>entryJourney(activeBrowser,engine.name,recipe));
@@ -614,7 +641,7 @@ try {
       if(engine.name==='chromium')for(const game of ['suguru','nonogram','shikaku'])
         await check(engine.name,'shared-'+game+'-smoke',()=>neighborSmoke(activeBrowser,game),{rows:report.neighbors});
     } catch(error){report.journeys.push({engine:engine.name,id:'runtime',status:'failed',failure:bounded(error.message)})}
-    finally {if(activeBrowser){await activeBrowser.close();activeBrowser=undefined}}
+    finally {if(activeBrowser){await closeContext(activeBrowser);activeBrowser=undefined}}
   }
   const expectedGeometry=2*(viewports.length*2+viewports.filter(v=>v.touch).length*2+viewports.filter(v=>!v.touch).length);
   const missingJourneys=['chromium','webkit'].flatMap(engine=>['normal-ui-admission',...functionalJourneys].filter(id=>!report.journeys.some(row=>row.engine===engine&&row.id===id)).map(id=>({engine,id})));
@@ -624,7 +651,7 @@ try {
   report.status=report.unrun.length||!report.coverage.complete?'blocked':failures()===0?'passed':'failed';
 } catch(error){report.failure=bounded(error.message)}
 finally {
-  if(activeBrowser)try{await activeBrowser.close();activeBrowser=undefined}catch(error){report.errors.push({cleanup:bounded(error.message)})}
+  if(activeBrowser)try{await closeContext(activeBrowser);activeBrowser=undefined}catch(error){report.errors.push({cleanup:bounded(error.message)})}
   report.browser_closed=!activeBrowser;
   if(report.engines.length!==2||report.journeys.some(row=>row.id==='runtime'))report.status='blocked';
   report.complete=true;

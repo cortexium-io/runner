@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryDimensions,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -196,19 +196,101 @@ test('in-play New cannot manufacture a missing or ambiguous disclosure',async()=
   }
 });
 
-test('only authored best-effort telemetry 4xx are nonblocking and retain their policy and safe dimensions',()=>{
-  const optional=classifyFailure({kind:'http',method:'POST',path:'/api/analytics/events',status:400});
-  assert.equal(optional.blocking,false);assert.match(optional.contract,/analytics-tracker/);
-  assert.equal(optional.status,400);assert.equal(optional.path,'/api/analytics/events');
+test('the complete owned tracker contract keeps both POST 4xx visible while unknown/private errors and all 5xx block',()=>{
+  assert.deepEqual(telemetryContract.channels.map(c=>c.path),['/api/analytics/events','/api/analytics/page-views']);
+  for(const {path} of telemetryContract.channels) {
+    const optional=classifyFailure({kind:'http',method:'POST',path,status:400});
+    assert.equal(optional.blocking,false);assert.match(optional.contract,/analytics-tracker/);assert.match(optional.contract,/native-analytics/);
+    assert.equal(optional.status,400);assert.equal(optional.path,path);
+    assert.equal(classifyFailure({kind:'http',method:'POST',path,status:500}).blocking,true);
+    assert.equal(classifyFailure({kind:'transport',method:'POST',path}).blocking,false);
+  }
   for(const failure of [
     {kind:'http',method:'POST',path:'/api/games/admit',status:400},
     {kind:'http',method:'POST',path:'/api/unknown',status:404},
     {kind:'http',method:'POST',path:'/api/analytics/events',status:500},
     {kind:'http',method:'GET',path:'/api/analytics/events',status:400},
+    {kind:'http',method:'POST',path:'/api/analytics/private',status:400},
+    {kind:'http',method:'POST',path:'/api/admin/analytics',status:403},
+    {kind:'transport',method:'POST',path:'/api/games/admit'},
     {kind:'pageerror',message:'uncaught error'},
   ])assert.equal(classifyFailure(failure).blocking,true);
   assert.deepEqual(telemetryDimensions({event_name:'hint_apply',product_area:'sudoku',token:'secret',route:'/sudoku/private',snapshot:{entries:[1]}}),{event_name:'hint_apply',product_area:'sudoku'});
   assert.deepEqual(telemetryDimensions({event_name:'secret-identifier',product_area:'secret-identifier'}),{event_name:'unregistered',product_area:'unregistered'});
+});
+
+test('request snapshots preserve initiating document/journey while redacting codes, queries and full referrers',()=>{
+  const origin='https://runner.invalid',context={origin,document:origin+'/sudoku/private-board?token=private-query#private-fragment',journey:'appearance-controls',viewport:{width:390,height:844}};
+  const body=Buffer.from(JSON.stringify({path:'/sudoku/private-board?secret=private-query',referrer:'https://alice:password@private-referrer.invalid/private-path?secret=private-query#private-fragment',unexpected:'private-payload'}));
+  const request={method:()=> 'POST',url:()=>origin+'/api/analytics/page-views',postDataBuffer:()=>body};
+  const facts=apiRequestFacts(request,context);
+  context.document=origin+'/';context.journey='next-journey';context.viewport.width=1440;
+  assert.equal(facts.initiator.journey,'appearance-controls');assert.equal(facts.initiator.viewport.width,390);
+  assert.equal(facts.initiator.document.route,'/sudoku/:code');assert.equal(facts.initiator.document.query,true);
+  assert.equal(facts.payload.path.route,'/sudoku/:code');assert.equal(facts.payload.unrecorded_fields,1);
+  assert.deepEqual(facts.payload.referrer,{type:'string',format:'url',protocol:'https:',same_origin:false,path:true,query:true,fragment:true,credentials:true});
+  assert.equal(facts.payload.bytes,body.length);assert.match(facts.payload.sha256,/^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(facts),/private-board|private-query|private-fragment|private-referrer|private-payload|alice|password/);
+  request.url=()=>origin+'/api/admin/analytics';request.postDataBuffer=()=>{throw Error('private API payload must not be inspected')};
+  assert.equal(apiRequestFacts(request,context).payload,undefined);
+});
+
+test('telemetry payload diagnostics bound parsing and retain malformed bodies only as size/hash',()=>{
+  const context={origin:'https://runner.invalid',document:'https://runner.invalid/',journey:'normal-ui-admission',viewport:{width:390,height:844}};
+  const request={method:()=> 'POST',url:()=>context.origin+'/api/analytics/events',postDataBuffer:()=>Buffer.from('private-malformed-json')};
+  assert.equal(apiRequestFacts(request,context).payload.format,'invalid-json');
+  request.postDataBuffer=()=>Buffer.alloc(4097,120);
+  const large=apiRequestFacts(request,context).payload;assert.equal(large.format,'over-4KiB');assert.equal(large.bytes,4097);
+  request.postDataBuffer=()=>Buffer.from(JSON.stringify({event_name:'hint_apply',product_area:'sudoku',route:'/',token:'private-token'}));
+  const event=apiRequestFacts(request,context).payload;
+  assert.equal(event.event_name,'hint_apply');assert.equal(event.product_area,'sudoku');assert.equal(event.unrecorded_fields,1);
+  assert.doesNotMatch(JSON.stringify(event),/private-token|"token"/);
+});
+
+test('bounded response facts distinguish known decode/domain errors without retaining arbitrary body text',async()=>{
+  for(const [text,category] of [['invalid JSON request body\n','invalid-json'],['invalid input\n','invalid-input'],['private-response-secret','unrecognized']]) {
+    const body=Buffer.from(text),response={headers:()=>({'content-length':String(body.length)}),body:async()=>body};
+    const facts=await apiResponseFacts(response);
+    assert.equal(facts.error_category,category);assert.equal(facts.bytes,body.length);assert.match(facts.sha256,/^[a-f0-9]{64}$/);
+    assert.doesNotMatch(JSON.stringify(facts),/private-response-secret/);
+  }
+  for(const headers of [{},{'content-length':'1025'},{'content-length':'20','content-encoding':'gzip'}]) {
+    const facts=await apiResponseFacts({headers:()=>headers,body:async()=>{assert.fail('unbounded/encoded response must not be fetched')}});
+    assert.equal(facts.body,'unavailable');
+  }
+  const unavailable=await apiResponseFacts({headers:()=>({'content-length':'12'}),body:async()=>{throw Error('private error detail')}});
+  assert.equal(unavailable.body,'unavailable');assert.doesNotMatch(JSON.stringify(unavailable),/private error detail/);
+});
+
+test('response enrichment settles before close and retains late close-time facts before returning',async()=>{
+  const pending=new Map(),events=[];let resolveFirst,resolveLate,closeStarted;
+  const first=new Promise(resolve=>{resolveFirst=resolve}).then(()=>events.push('first-facts'));
+  pending.set(first,new AbortController());first.then(()=>pending.delete(first));
+  const late=new Promise(resolve=>{resolveLate=resolve}).then(()=>events.push('late-facts'));
+  const started=new Promise(resolve=>{closeStarted=resolve});
+  const owner={close:async()=>{events.push('close');pending.set(late,new AbortController());late.then(()=>pending.delete(late));closeStarted()}};
+  const closing=closeAfterResponses(owner,pending,12000);
+  assert.deepEqual(events,[]);resolveFirst();await started;
+  assert.deepEqual(events,['first-facts','close']);resolveLate();await closing;
+  assert.deepEqual(events,['first-facts','close','late-facts']);assert.equal(pending.size,0);
+});
+
+test('optional body timeout remains visible without rejecting gameplay; real cleanup errors still propagate',async()=>{
+  const pending=new Map(),controller=new AbortController();let release,closed=0;
+  const response={headers:()=>({'content-length':'12'}),body:()=>new Promise(resolve=>{release=resolve})};
+  let retained,lateRetained;
+  const work=apiResponseFacts(response,controller.signal).then(facts=>{retained=facts});pending.set(work,controller);work.then(()=>pending.delete(work));
+  const facts=await closeAfterResponses({close:async()=>{
+    closed++;
+    const lateController=new AbortController(),lateResponse={headers:response.headers,body:()=>new Promise(()=>{})};
+    const late=apiResponseFacts(lateResponse,lateController.signal).then(facts=>{lateRetained=facts});pending.set(late,lateController);late.then(()=>pending.delete(late));
+  }},pending,1);
+  assert.equal(facts.capture_timed_out,true);assert.equal(retained.body,'unavailable');assert.equal(retained.reason,'diagnostic capture deadline expired');
+  assert.equal(lateRetained.reason,'diagnostic capture deadline expired');
+  assert.equal(closed,1);assert.equal(pending.size,0);
+  const saved=structuredClone(retained);release(Buffer.from('invalid input\n'));await Promise.resolve();await Promise.resolve();
+  assert.deepEqual(retained,saved,'late body completion overwrote the unavailable diagnostic');
+  await assert.rejects(closeAfterResponses({close:async()=>{throw Error('real cleanup failure')}},new Map(),12000),/real cleanup failure/);
 });
 
 test('neighbor measurement omits hidden/zero-area nodes and retains only primary controls plus Undo',()=>{

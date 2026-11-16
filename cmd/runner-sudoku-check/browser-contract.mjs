@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 
 export const sudokuBoardSelector='.sudoku-play .puzzle-board';
 
@@ -131,10 +132,23 @@ export async function newSudokuFromPlay(page,activate) {
   await activate(more.getByRole('button',{name:'New puzzle',exact:true}));
 }
 
+// Complete ownership boundary of the authored best-effort tracker. Fields are
+// a safe observation projection, not a validation of the complete server DTO.
+// Private/admin APIs and every 5xx still fail.
+export const telemetryContract={
+  source:'frontend/src/lib/analytics-tracker.gny.ts: trackPageView/trackAnalyticsEvent catch ingestion failures; frontend/src/api/analytics.ts: best-effort beacon; docs/native-analytics.md: telemetry must not alter gameplay/navigation',
+  channels:[
+    {method:'POST',path:'/api/analytics/events',fields:['event_name','product_area','route']},
+    {method:'POST',path:'/api/analytics/page-views',fields:['path','referrer']},
+  ],
+};
+const telemetryChannel=failure=>telemetryContract.channels.find(channel=>channel.method===failure.method&&channel.path===failure.path);
+const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
+
 export function classifyFailure(failure) {
-  const optional=failure.kind==='http'&&failure.method==='POST'&&failure.path==='/api/analytics/events'&&failure.status>=400&&failure.status<500;
+  const optional=!!telemetryChannel(failure)&&(failure.kind==='http'&&failure.status>=400&&failure.status<500||failure.kind==='transport');
   return {...failure,blocking:!optional,classification:optional?'best-effort-telemetry':'required-or-unclassified',...(optional?{
-    contract:'frontend/src/lib/analytics-tracker.gny.ts: trackAnalyticsEvent catches ingestion failures; frontend/src/pages/home/analytics.test.ts asserts gameplay despite failed telemetry',
+    contract:telemetryContract.source,
   }:{})};
 }
 
@@ -144,6 +158,102 @@ export function telemetryDimensions(input) {
   const events=['game_start','game_complete','hint_request','hint_apply','result_copy','result_share','ad_slot_visible','ad_slot_unfilled_visible','ad_slot_filled_visible','ad_slot_optimized_visible','house_ad_ami_visible','house_ad_ami_click'];
   const areas=['home','play','guide','sudoku','suguru','binary','nonogram','futoshiki','shikaku','hashi','calcudoku','kakuro'];
   return {event_name:events.includes(input?.event_name)?input.event_name:'unregistered',product_area:areas.includes(input?.product_area)?input.product_area:'unregistered'};
+}
+
+export function publicPathFacts(value,origin) {
+  if(typeof value!=='string')return {type:typeof value};
+  if(!value)return {type:'string',format:'empty'};
+  try {
+    const url=new URL(value,origin),parts=url.pathname.split('/').filter(Boolean),games=['sudoku','suguru','binary','nonogram','futoshiki','shikaku','hashi','calcudoku','kakuro'];
+    let route='other';
+    if(url.origin===origin) {
+      if(!parts.length)route='/';
+      else if(games.includes(parts[0])&&parts.length<=2)route='/'+parts[0]+(parts.length===2?'/:code':'');
+      else if(parts[0]==='how-to-play'&&games.includes(parts[1])&&parts.length===2)route='/how-to-play/'+parts[1];
+    }
+    return {route,query:!!url.search,fragment:!!url.hash,absolute:/^[a-z][a-z0-9+.-]*:/i.test(value),same_origin:url.origin===origin};
+  } catch{return {type:'string',format:'invalid-url'}}
+}
+
+export function apiRequestFacts(request,{document,journey,viewport,origin}) {
+  const identity={method:request.method(),path:new URL(request.url()).pathname};
+  const facts={...identity,initiator:{document:publicPathFacts(document,origin),journey:String(journey).slice(0,100),viewport:{width:viewport?.width,height:viewport?.height}}};
+  const channel=telemetryChannel(identity);
+  if(!channel)return facts; // Never inspect required/private API payloads.
+  const body=request.postDataBuffer();
+  if(!body){facts.payload={format:'absent'};return facts}
+  const payload=facts.payload={bytes:body.length,sha256:sha256(body)};
+  if(body.length>4096){payload.format='over-4KiB';return facts}
+  let input;
+  try{input=JSON.parse(body.toString('utf8'))}catch{payload.format='invalid-json';return facts}
+  if(!input||Array.isArray(input)||typeof input!=='object'){payload.format='non-object-json';return facts}
+  Object.assign(payload,{format:'json-object',unrecorded_fields:Object.keys(input).filter(key=>!channel.fields.includes(key)).length,types:Object.fromEntries(channel.fields.map(key=>[key,typeof input[key]]))});
+  if(identity.path==='/api/analytics/events')Object.assign(payload,telemetryDimensions(input),{route:publicPathFacts(input.route,origin)});
+  else {
+    payload.path=publicPathFacts(input.path,origin);
+    const value=input.referrer;
+    payload.referrer={type:typeof value};
+    if(typeof value==='string') {
+      if(!value)payload.referrer.format='empty';
+      else try{const url=new URL(value);Object.assign(payload.referrer,{format:'url',protocol:['http:','https:'].includes(url.protocol)?url.protocol:'other',same_origin:url.origin===origin,path:url.pathname!=='/',query:!!url.search,fragment:!!url.hash,credentials:!!(url.username||url.password)})}catch{payload.referrer.format='invalid-url'}
+    }
+  }
+  return facts;
+}
+
+export async function apiResponseFacts(response,signal) {
+  const headers=response.headers(),length=headers['content-length'],encoding=headers['content-encoding'];
+  const bytes=/^\d{1,6}$/.test(length??'')?Number(length):null;
+  const facts={declared_bytes:bytes,body:'unavailable'};
+  // Never fetch arbitrary/unbounded or compressed bodies. Error payloads from
+  // this owned local server are short, declared, uncompressed text/JSON.
+  if(bytes===null||bytes>1024||encoding&&encoding!=='identity')return {...facts,reason:'undeclared, over-1KiB or encoded'};
+  let onAbort;
+  try {
+    if(signal?.aborted)return {...facts,reason:'diagnostic capture deadline expired'};
+    const cancelled=Symbol('capture-cancelled');
+    const cancellation=signal&&new Promise(resolve=>{onAbort=()=>resolve(cancelled);signal.addEventListener('abort',onAbort,{once:true})});
+    const reading=response.body();
+    const body=await (signal?Promise.race([reading,cancellation]):reading);
+    if(body===cancelled)return {...facts,reason:'diagnostic capture deadline expired'};
+    Object.assign(facts,{bytes:body.length,sha256:sha256(body)});
+    if(body.length>1024)return {...facts,reason:'body exceeded declared diagnostic bound'};
+    const categories={
+      'invalid JSON request body':'invalid-json',
+      'request body must contain a single JSON value':'multiple-json-values',
+      'request body is too large':'request-too-large',
+      'invalid input':'invalid-input',
+      'invalid id':'invalid-id',
+      'forbidden':'forbidden',
+      'unauthorized':'unauthorized',
+      'internal server error':'internal-server-error',
+    };
+    return {...facts,body:'hashed',error_category:categories[body.toString('utf8').trim()]??'unrecognized'};
+  } catch{return {...facts,reason:'response body unavailable'}}
+  finally{if(onAbort)signal.removeEventListener('abort',onAbort)}
+}
+
+// Only actual failing HTTP responses enqueue body enrichment. Drain those
+// facts before cleanup; no request/header wait or network-idle delay is added.
+export async function closeAfterResponses(owner,pending,timeoutMS) {
+  let expired=false,closing;
+  const close=()=>closing??=(async()=>owner.close())();
+  const abortPending=()=>{for(const controller of pending.values())controller.abort()};
+  const drain=async()=>{
+    if(!pending.size)return;
+    const deadline=setTimeout(()=>{expired=true;abortPending();close().catch(()=>{})},timeoutMS);
+    try{while(pending.size){if(expired)abortPending();await Promise.allSettled([...pending.keys()])}}
+    finally{clearTimeout(deadline)}
+  };
+  try {
+    await drain();
+    await close();
+    // A final response can arrive while closing. Its body now either exists
+    // or is unavailable; retain that fact before the archive is finalized.
+    await drain();
+  }
+  finally {await close()}
+  return {capture_timed_out:expired};
 }
 
 // These functions execute read-only in the page and have no captured helpers.
