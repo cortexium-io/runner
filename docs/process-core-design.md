@@ -228,6 +228,18 @@ This is a maintenance intervention, so the live run cannot establish uninterrupt
 autonomous delivery. Product checks, independent review and preview acceptance
 remain separate obligations.
 
+Live performance diagnosis also found avoidable coordinator work. A three-second
+read-only sample of the installed service on 16 November at 21:19 UTC captured
+`Codex.listen -> measure -> Disk.Refresh -> filepath.WalkDir` while only the
+fixed-command product check was active. The native monitor's 250 ms ticker calls
+`measure` even between Codex turns; `Refresh` walks all six managed directory
+trees, including workspaces and retained artifacts. Process observations showed
+the coordinator using close to one CPU core. The sample also contains Core JSON
+cloning; it does not apportion total CPU cost or establish the product timeout's
+cause. The diagnostic is retained as `maintenance/live-runner-cpu-sample.txt`.
+This is an unresolved scaling concern, not a qualified performance correction;
+the running service was not changed during the product check.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then
