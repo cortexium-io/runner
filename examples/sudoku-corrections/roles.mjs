@@ -1,6 +1,8 @@
 import {followupFacts} from '../sudoku-continuation/followup.mjs';
 
 export const processID='correct-sudoku-preview';
+export const goalStageID='stage-sudoku-goal';
+export const goalStageRoleID='sudoku-correction-goal-stage';
 export const testEntry='frontend/verification/sudoku-corrections.mjs';
 export const testHelpers='frontend/verification/sudoku-corrections';
 export const names=Object.freeze({lead:'sudoku-correction-lead',baseline:'sudoku-correction-baseline',research:'sudoku-correction-research',
@@ -27,35 +29,36 @@ export function correctionFacts(parent) {
 }
 
 const common=[
-  'Read the complete self-contained task_context.goal. Iterate its actual corrections[] IDs; every listed correction, carry-forward requirement, owner capture and inspection stop is authoritative. Current IDs are not a permanent required count for future goals. New explicit corrections supersede historical acceptance. The completed parent and prior archives establish starting source, not current approval. Preserve source/progress/history; never restore an older snapshot.',
-  'Operate only inside the assigned Runner task. No outside agents, Runner controls, protected-helper/configuration changes, dependency installation, generated-source edits, credentials, merges, production deployment, database restoration or gate waivers. Native task write_paths are cooperative claims; respect the assigned narrow source ownership. Report a concrete unsupported capability rather than inventing proof or silently changing policy.',
-  'Use only supplied canonical artifact paths and declared dependency outputs. Read small summary/report sections first, not whole source inventories or historical chains. Completed/ready means evidence was delivered, not that acceptance passed. Do not copy reports into task briefs or keep duplicate evidence trees. Clean owned scratch in finally/trap while retaining source edits and canonical artifacts.',
-  'Read effective task_context.attempt_budget.unlimited and task_context.unlimited_tasks. When true, -1 remaining means no aggregate work ceiling; historical counters are not reasons to halt or request allowance. Local retries, concurrency, timeouts, byte/storage safeguards and authority still apply. A delivered child report uses outcome ready even when its verdict is changes_requested or blocked.'
+  'The unchanged owner_goal:artifact is the complete authoritative owner document. task_context.goal is only its compact digest/purpose pointer, NOT the acceptance specification. Resolve your declared owner_goal through request.evidence_files, verify its SHA256 against that pointer, then read the overall obligations and relevant full sections/captures. Iterate actual corrections[] IDs; no requirement is truncated. Never copy the full document into briefs/inputs/reports. New explicit corrections supersede historical acceptance; prior proof establishes starting source, not current approval. Preserve source/progress/history.',
+  'Work only in this Runner task. No outside agents/Runner controls, protected-helper/config changes, installs, generated-source edits, credentials, merge/deploy/restore or gate waivers. Respect narrow cooperative write_paths; report a real unsupported capability instead of inventing proof or changing policy.',
+  'Use only supplied canonical artifacts and declared dependency outputs. Read small summary/report sections first, not whole inventories/history. Keep final report:text <=1024 UTF-8 bytes and reason<=256 bytes; the whole final response remains within its existing8192-byte bound. Full citations/per-ID/image reconciliation belong in declared artifact files under request.output_dir, returned as relative filenames; never inline those files in report. Completed/ready delivers evidence, not acceptance. Clean owned scratch in finally/trap; retain edits and canonical artifacts.',
+  'Effective task_context.attempt_budget.unlimited/task_context.unlimited_tasks with remaining -1 disable aggregate ceilings; historical counters never require allowance. Local retries/access/concurrency/timeouts/storage/authority still apply. A delivered report uses outcome ready even when its verdict is changes_requested or blocked.'
 ].join('\n\n');
 
 export function correctionRoles(parent,runtime) {
   const {nativeRoles}=correctionFacts(parent);
   const native=(kind,id,purpose,instructions)=>{
     const role=structuredClone(parent.roles[nativeRoles[kind]]);
-    Object.assign(role,{id,purpose,inputs:{},outputs:{report:'text'}});
+    Object.assign(role,{id,purpose,inputs:{owner_goal:'artifact'},outputs:{report:'text'}});
     role.execution.instructions=common+'\n\n'+instructions.join('\n\n');
     return role;
   };
   const lead=native('lead',names.lead,'Deliver every current owner correction through independent current-source evidence and an accepted stopped preview.',[
-    'First delegate exactly one baseline task ID baseline, role '+names.baseline+', inputs prior/handoff from assigned artifacts, write_paths:[]. It authenticates the accepted candidate and preserves its source-only delta once. Read its canonical archive manifest and require manifest.status passed before admitting any writer; taskstatus Completed alone is insufficient. No repeated baseline build or legacy checker UI gate is needed.',
+    'Every task receives owner_goal copied UNCHANGED from your declared artifact input, including baseline/research/writers/check/reviews/repairs. First delegate baseline, role '+names.baseline+', inputs owner_goal/prior/handoff, write_paths:[]. Require its archive manifest.status passed before writers; Completed alone is insufficient. The exact original owner document binds source admission; the compact pointer must never replace --request or --goal. No repeated baseline build or legacy UI gate is needed.',
     'Current C13 requires official sharing research ('+names.research+', ID sharing-research, depends_on:["baseline"]) before both writers: admit research plus developer '+names.developer+' and test author '+names.author+' together; BOTH writers depend_on:["baseline","sharing-research"]. For later goals require this research only when requested sharing changes need fresh official evidence; otherwise reuse applicable research or omit irrelevant research and both writers depend on baseline. Author owns only '+testEntry+' and '+testHelpers+'; developer owns frontend/src and docs/sudoku-interface.md. Disjoint writers may overlap. Developer may run focused tests; author never changes product. Neither directly launches product browsers/servers.',
     'The fixed '+names.check+' role executes the authored script under qualified command/shared read-only access. Admit it only after baseline, current author and current developer finish; dependency list MUST include baseline and all writers whose bytes it checks. Inputs checks is original retained frontend proof; prior is the newest applicable canonical evidence archive (parent archive initially, current completed check afterward). Keep baseline ID stable for {dependency.baseline.artifact}. Do not treat a collector defect as a product defect or speculate repairs before reading actual diagnostic evidence.',
     'A missing/incomplete archive, startup/import/CLI error or Failed fixed-command child is a verifier failure to diagnose, not a reason to wait for nonexistent summary.json or call an operator. Assign the project test author a compact actual failure and current source/baseline; omit unavailable/Failed dependencies rather than inventing artifacts. The repaired fixed check depends on the current completed author, baseline and unchanged relevant product writer. Exit code0/ready/Completed alone never means acceptance. A genuine missing runtime/authority is reported precisely; ordinary project-script faults are repaired inside this process.',
     'Assess every actual goal.corrections[] ID from current source/test/runtime/goal-bound results, meaningful interactions and whole/open-panel images. Require all listed items passed, source_sha256===source_after_sha256, test SHA, runtime hashes, frontend/typecheck/build proof, admission compatibility and cleanup, with no unrun requirement. No old tool, hint or case count overrides this goal. Reuse only exact relevant-input/contract proof; verification-only changes do not invalidate unchanged product frontend/build proof.',
-    'Only when current evidence is ready admit independent source and UX reviews ('+names.source+' and '+names.visual+') in parallel, depending on baseline and that completed check. Each reconciles every current correction ID against SAME source/test/goal identities. Source audits assertions/cleanup/ownership; UX PERSONALLY views whole-flow images. Route product findings to developer and oracle faults to author. Run only necessary checks and evidence-ready reassessments; reuse valid proof, preserve history and delegate rather than retire prior work.',
+    'Only after current evidence is ready admit independent source/UX reviews ('+names.source+' and '+names.visual+') in parallel behind baseline+completed check. Read their canonical assessment artifacts, not just compact verdicts; require EVERY owner correction ID and SAME source/test/goal identities. Read research artifact for full dated official claims before writers rely on them. UX PERSONALLY views images. Route product findings to developer and oracle faults to author; reuse valid proof and preserve history.',
     'Briefs stay <=400 characters with two observable acceptance conditions; results flow through task_context.results. Control: outcome ready, task_action.kind delegate, empty outputs. Final: task_action null, outcome accepted/rejected. Accept the complete current goal, exact stopped preview manifest/server, independent matching approvals and cleanup. Return the authorized preview handoff; never launch a daemon or claim phone reachability. Preserve existing preview/progress until trusted operator validates replacement. Stop for Dan inspection, no release authority.',
-    'Final report <=350 words: every current correction ID, source/test/goal identity, canonical archive, independent verdicts, stopped preview hashes/paths, visible/functional changes, reuse/repair facts, cleanup and actual emulated/physical/native gaps. Routine decisions/disabled global counters need no intervention; actual unsupported capability remains explicit.'
+    'Final report <=1024 bytes: verdict, owner-goal/source identities, canonical check and assessment artifact IDs, stopped preview manifest reference, concise visible changes, cleanup and real coverage gaps. Complete per-ID proof remains in those artifacts. Routine decisions/disabled counters need no intervention; actual unsupported capability remains explicit.'
   ]);
-  lead.inputs={request:'text',patch:'artifact',checks:'artifact',prior:'artifact',handoff:'artifact'};
+  lead.inputs={request:'text',owner_goal:'artifact',patch:'artifact',checks:'artifact',prior:'artifact',handoff:'artifact'};
   const research=native('source',names.research,'Research official sharing endpoints/constraints required by the current goal, or establish no new research is needed.',[
     'If current corrections request sharing changes, use permitted network tools/HTTP for current official sharing endpoints, encoding, native share/clipboard and cancellation/fallback constraints. Cite date, exact first-party URLs and supported claims. Do not invent endpoints. If no such change is requested, return not-needed with the applicable retained research reference; do not perform irrelevant research. Never post, sign up, log in, invoke sharing externally or expose private progress. This is read-only research, not product testing.',
-    'Return compact JSON report:text {status:"researched"|"blocked",observed_at:"ISO date",sources:[{url,supports}],platforms:[{name,endpoint,parameters,constraints}],native_share:{availability,cancellation,fallback},gaps:[...]}. Production puzzle links use https://jacksbreak.com, contain only public puzzle identity and must never encode entries, notes, timer, mistakes or private progress. Developer and test author use this evidence inside their tasks.'
+    'Write complete sharing-research.json in request.output_dir: {status,owner_goal_sha256,observed_at,sources:[{url,supports}],platforms:[{name,endpoint,parameters,constraints}],native_share:{availability,cancellation,fallback},gaps}. Preserve all dated first-party citations/constraints in that file, not the final response. Return outputs.research="sharing-research.json" and report:text <=1024 bytes with status/date/covered topics/gaps only. Production https://jacksbreak.com links contain public puzzle identity, never private entries/notes/timer/mistakes. Writers read your canonical artifact.'
   ]);
+  research.outputs.research='artifact';
   research.execution.native.network=true;
   const developer=native('developer',names.developer,'Implement current scoped Sudoku corrections with relevant focused regression evidence.',[
     'Wait for authenticated baseline. Read every actual goal.corrections[] item, current source and applicable sharing research. Own only frontend/src and docs/sudoku-interface.md. Preserve backend, generated .gny/.genny, manifests/locks, dependencies, fixtures, Git metadata, accepted preview/progress and other games. The independent author owns '+testEntry+' and helpers; do not edit them.',
@@ -78,23 +81,25 @@ export function correctionRoles(parent,runtime) {
   const source=native('source',names.source,'Independently reconcile current correction IDs with implementation, test adequacy and authenticated evidence.',[
     'Inspect current source/test code, baseline delta and report/summary. Map every actual goal.corrections[] ID to meaningful assertions/observations. Audit script input/source hashes, canonical admission-compatible archive/probe and cleanup, not pass counts. Find omitted hard states, mocks, weakened assertions, duplicate gates, cosmetic fakes/hidden failures. Check dated official sharing/privacy claims where relevant, scope/state/accessibility/other-games preservation, unnecessary tests/copies and accumulating patch branches. Prefer a coherent cause-level correction.',
     'Only frontend/src, exact design doc and the explicit project verification surface may change. Source proofs compare baseline and current source/test hashes; valid unchanged frontend/build evidence may be reused. Read compact evidence first; use full arrays only for concrete questions. Do not run duplicate product checks or approve from counts alone. Owner-approved interaction changes supersede obsolete gates.',
-    'Return JSON {verdict:"approved"|"changes_requested"|"blocked",source_sha256,test_sha256,request_sha256,requirements:[{id:actualgoalID,verdict,evidence,gap}],findings:[{severity,path,issue,required_change}],gaps:[...]}. Explicitly assess every current ID. Your current source/assertion audit plus matching proof establishes source approval; visual judgment is independent. No unsupported release/native/physical claims.'
+    'Write source-assessment.json in request.output_dir: {verdict,source_sha256,test_sha256,owner_goal_sha256,requirements:[{id,verdict,evidence,gap}],findings:[{severity,path,issue,required_change}],gaps}. Explicitly reconcile EVERY owner ID with full evidence; omit none. Return outputs.assessment="source-assessment.json" plus report:text <=1024 bytes containing verdict/identities/finding counts and artifact reference only. Do not inline the reconciliation. Your source/assertion audit and matching proof establish source approval; visual judgment is independent. No unsupported release/native/physical claims.'
   ]);
+  source.outputs.assessment='artifact';
   const visual=native('visual',names.visual,'Independently judge the complete corrected Sudoku experience and each owner requirement from current full-flow evidence.',[
     'Use this self-contained goal and puzzle-review guidance, not caller skill paths. A satisfying puzzle preserves mental context: clear board/digit/tool hierarchy, readable current state, predictable cell/pin/notes/history/hint actions, retained progress/focus across resize, brief useful explanations, discoverable calm secondary actions, and uninterrupted actual play. Preserve Jack’s Break wordmark/Manrope/indigo/lime/light-dark identity. Judge uncluttered composition, spacing, icons, legibility, enabled/disabled/focus states and logical next action as a player, not a metric auditor.',
     'Require current full/open-panel images and interaction receipts. Extract only to unique owned TMPDIR with finally cleanup. PERSONALLY view readable full-viewport PNGs using native image tool; filenames/DOM/older images are not substitutes. Inspect a representative full journey and materially different requested themes/compositions/states; compare owner captures and every actual goal.corrections[] ID, then judge whole experience. Functional claims need interaction proof, not image inference.',
     'Be independent of the test author, source reviewer and passing geometry: a polished aggregate test result can still miss the goal. Identify missing images/untested requirements honestly; do not approve an empty/failed archive or invent native Safari/physical-phone proof. Avoid repeating unchanged functional checks. Preserve original evidence, use small summaries and remove only owned extraction scratch.',
-    'Return JSON {verdict:"approved"|"changes_requested"|"blocked",source_sha256,test_sha256,request_sha256,requirements:[{id:actualgoalID,verdict,images,interaction,gap}],inspected_images:["actually viewed archive names"],findings:[{image,issue,required_change}],gaps:[...]}. Approval needs every current ID and no unresolved whole-experience mismatch for SAME candidate. Trusted operator handles accepted stopped preview and Dan’s phone inspection; no release.'
+    'Write ux-assessment.json in request.output_dir: {verdict,source_sha256,test_sha256,owner_goal_sha256,requirements:[{id,verdict,images,interaction,gap}],inspected_images:[actually viewed names],findings:[{image,issue,required_change}],gaps}. Preserve full EVERY-ID reconciliation and actual image names there; never inline them in final response. Return outputs.assessment="ux-assessment.json" and report:text <=1024 bytes with verdict/identities/counts/artifact reference. Approval needs all current IDs and no unresolved whole-experience mismatch for SAME candidate. Trusted operator handles phone inspection; no release.'
   ]);
+  visual.outputs.assessment='artifact';
   const baseline={id:names.baseline,purpose:'Authenticate and preserve the accepted source-only baseline once before any correction writer.',
-    inputs:{prior:'artifact',handoff:'artifact'},outputs:{check:'text',artifact:'artifact'},execution:{harness:'command',mode:'shared',access:'workspace-read',command:{
+    inputs:{owner_goal:'artifact',prior:'artifact',handoff:'artifact'},outputs:{check:'text',artifact:'artifact'},execution:{harness:'command',mode:'shared',access:'workspace-read',command:{
       args:[runtime.node,runtime.capture,'--source','{workspace}','--scratch','{scratch}','--admission',runtime.admission,
-        '--accepted-check','{artifact.prior}','--accepted-handoff','{artifact.handoff}','--request','{goal}'],
+        '--accepted-check','{artifact.prior}','--accepted-handoff','{artifact.handoff}','--request','{artifact.owner_goal}'],
       env:{PATH:runtime.path},network:false,result:'domain.json',artifact:'baseline.tar.gz'
     }}};
   const check={id:names.check,purpose:'Execute the authored project verification independently against the read-only current candidate.',
-    inputs:{prior:'artifact',checks:'artifact'},outputs:{check:'text',artifact:'artifact'},execution:{harness:'command',mode:'shared',access:'workspace-read',command:{
-      args:[runtime.node,'{workspace}/'+testEntry,'--source','{workspace}','--scratch','{scratch}','--goal','{goal}',
+    inputs:{owner_goal:'artifact',prior:'artifact',checks:'artifact'},outputs:{check:'text',artifact:'artifact'},execution:{harness:'command',mode:'shared',access:'workspace-read',command:{
+      args:[runtime.node,'{workspace}/'+testEntry,'--source','{workspace}','--scratch','{scratch}','--goal','{artifact.owner_goal}',
         '--baseline','{dependency.baseline.artifact}','--prior','{artifact.prior}','--checks','{artifact.checks}'],
       env:{PATH:runtime.path,GOTOOLCHAIN:'local',GOCACHE:runtime.goCache,GOMODCACHE:runtime.goModuleCache,OPENSSL_CONF:runtime.opensslConf,RUNNER_GO_MODULES:runtime.goModuleCache,
         RUNNER_SUDOKU_GO:runtime.go,RUNNER_SUDOKU_MODULES:runtime.modules,RUNNER_SUDOKU_PLAYWRIGHT:runtime.playwright,
@@ -112,10 +117,26 @@ export function correctionProcess(parent) {
   correctionFacts(parent);
   const process=structuredClone(parent.process);
   process.id=processID;
-  process.inputs={request:'text',patch:'artifact',checks:'artifact',prior:'artifact',handoff:'artifact'};
+  process.inputs={request:'text',owner_goal:'artifact',patch:'artifact',checks:'artifact',prior:'artifact',handoff:'artifact'};
   process.steps=[{id:'lead',role:names.lead,inputs:Object.fromEntries(Object.keys(process.inputs).map(name=>[name,{from_input:name}])),
     routes:{accepted:{next:'$complete'},rejected:{next:'$fail'},ready:{next:'$fail'}}}];
   process.outputs={result:{from_step:'lead',output:'report'}};
   process.tasks.roles=Object.values(names).filter(name=>name!==names.lead);
+  return process;
+}
+
+export function goalStageRole(runtime) {
+  return {id:goalStageRoleID,purpose:'Preserve exact owner-document bytes and digest only; no source admission or product approval.',
+    inputs:{},outputs:{check:'text',artifact:'artifact'},execution:{harness:'command',mode:'shared',access:'workspace-read',command:{
+      args:[runtime.node,runtime.goalStager,'--goal','{goal}','--scratch','{scratch}'],env:{PATH:runtime.path},network:false,
+      result:'domain.json',artifact:'owner-goal.json'}}};
+}
+
+export function goalStageProcess(parent) {
+  correctionFacts(parent);
+  const process=structuredClone(parent.process);
+  process.id=goalStageID;process.inputs={request:'text'};process.tasks.roles=[goalStageRoleID];
+  process.steps=[{id:'stage',role:goalStageRoleID,inputs:{},routes:{ready:{next:'$complete'}}}];
+  process.outputs={goal:{from_step:'stage',output:'artifact'},summary:{from_step:'stage',output:'check'}};
   return process;
 }

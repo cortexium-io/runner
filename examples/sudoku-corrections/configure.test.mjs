@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'node:test';
 import {parentFixture,goalFixture} from '../../testdata/sudoku-corrections/configuration.mjs';
-import {correctionRuntime,configureCorrections,validateCorrectionGoal} from './configure.mjs';
-import {correctionFacts,correctionRoles,correctionProcess,names,processID,testEntry,testHelpers} from './roles.mjs';
+import {correctionRuntime,configureCorrections,correctionRequest,validateCorrectionGoal} from './configure.mjs';
+import {correctionFacts,correctionRoles,correctionProcess,goalStageRole,goalStageProcess,goalStageID,names,processID,testEntry,testHelpers} from './roles.mjs';
 
 test('correction route preserves native capabilities except explicit official-research network and separates ownership',()=>{
   const parent=parentFixture('/fixture',process.execPath),before=structuredClone(parent);
@@ -14,7 +14,9 @@ test('correction route preserves native capabilities except explicit official-re
   assert.deepEqual(parent,before);assert.equal(roles.length,8);
   for(const [oldID,next] of [['sudoku-lead',names.lead],['sudoku-developer',names.developer],['sudoku-developer',names.author],['sudoku-source-review',names.source],['sudoku-ux-review',names.visual]]) {
     const profile=structuredClone(byID[next].execution);profile.instructions=parent.roles[oldID].execution.instructions;
-    assert.deepEqual(profile,parent.roles[oldID].execution);assert.deepEqual(byID[next].outputs,{report:'text'});
+    assert.deepEqual(profile,parent.roles[oldID].execution);
+    assert.deepEqual(byID[next].outputs,[names.source,names.visual].includes(next)?{report:'text',assessment:'artifact'}:{report:'text'});
+    assert.equal(byID[next].inputs.owner_goal,'artifact');
   }
   const research=structuredClone(byID[names.research].execution);
   research.instructions=parent.roles['sudoku-source-review'].execution.instructions;delete research.native.network;
@@ -22,14 +24,16 @@ test('correction route preserves native capabilities except explicit official-re
   assert.equal(byID[names.research].execution.native.network,true);
   const checker=byID[names.check].execution;
   assert.equal(checker.harness,'command');assert.equal(checker.mode,'shared');assert.equal(checker.access,'workspace-read');
-  assert.deepEqual(checker.command.args,[process.execPath,'{workspace}/'+testEntry,'--source','{workspace}','--scratch','{scratch}','--goal','{goal}',
+  assert.deepEqual(checker.command.args,[process.execPath,'{workspace}/'+testEntry,'--source','{workspace}','--scratch','{scratch}','--goal','{artifact.owner_goal}',
     '--baseline','{dependency.baseline.artifact}','--prior','{artifact.prior}','--checks','{artifact.checks}']);
   assert.equal(checker.command.result,'domain.json');assert.equal(checker.command.artifact,'evidence.tar.gz');
   assert.equal(checker.command.env.RUNNER_SUDOKU_PREVIEW_ROOT,'/new/staged/preview');
   assert.deepEqual(checker.command.runtime_write_paths,['/fixture/cache',runtime.preview]);
   assert.equal(byID[names.baseline].execution.command.artifact,'baseline.tar.gz');
   assert.equal(byID[names.baseline].execution.command.network,false);
-  assert.match(byID[names.lead].execution.instructions,/manifest.status passed before admitting any writer/);
+  assert.equal(byID[names.baseline].execution.command.args.at(-1),'{artifact.owner_goal}');
+  assert.equal(byID[names.research].outputs.research,'artifact');
+  assert.match(byID[names.lead].execution.instructions,/manifest.status passed before writers/);
   assert.match(byID[names.lead].execution.instructions,/Current C13 requires official sharing research/);
   assert.match(byID[names.lead].execution.instructions,/BOTH writers depend_on:\["baseline","sharing-research"\]/);
   assert.match(byID[names.lead].execution.instructions,/omit irrelevant research/);
@@ -43,6 +47,11 @@ test('correction route preserves native capabilities except explicit official-re
     'PREVIEW_ROOT/<SHA256 of exact --goal bytes>','never alter another goal partition','original upstream base, not the local checkpoint'])
     assert.ok(author.includes(contract),'missing fixed-command/source-admission contract: '+contract);
   assert.equal(checker.command.env.RUNNER_SUDOKU_ADMISSION,runtime.admission);
+  const stage=goalStageRole(runtime),stageProcess=goalStageProcess(parent);
+  assert.deepEqual(stage.execution.command.args,[process.execPath,runtime.goalStager,'--goal','{goal}','--scratch','{scratch}']);
+  assert.deepEqual(stage.outputs,{check:'text',artifact:'artifact'});assert.equal(stage.execution.command.network,false);
+  assert.deepEqual(stage.inputs,{});assert.deepEqual(stageProcess.steps[0].inputs,{});
+  assert.equal(stageProcess.id,goalStageID);assert.deepEqual(stageProcess.tasks.roles,[stage.id]);assert.equal(stageProcess.steps.length,1);
   for(const role of roles) {
     assert.ok(Buffer.byteLength(JSON.stringify(role,null,2))<16<<10,role.id+' exceeds loader bound');
     assert.doesNotMatch(role.execution.instructions||'',/\/SKILL\.md|146geometry|20journeys|A little hint|Show the next move/);
@@ -53,6 +62,7 @@ test('correction route preserves native capabilities except explicit official-re
   assert.equal(definition.max_attempts_per_step,parent.process.max_attempts_per_step);
   assert.equal(definition.attempt_timeout,parent.process.attempt_timeout);
   assert.deepEqual(definition.tasks.roles,Object.values(names).filter(id=>id!==names.lead));
+  assert.equal(definition.inputs.owner_goal,'artifact');
 });
 
 test('accepted correction parents retain pinned capabilities and admit a different nonempty correction set',()=>{
@@ -73,6 +83,7 @@ test('accepted correction parents retain pinned capabilities and admit a differe
     const previous=parent.roles[role.id].execution;
     assert.deepEqual({...role.execution,instructions:previous.instructions},previous);
     assert.match(role.execution.instructions,/actual corrections\[\] IDs/);
+    assert.match(role.execution.instructions,/report:text <=1024 UTF-8 bytes/);
     assert.doesNotMatch(role.execution.instructions,/every fourteen|all fourteen|every C01|C01–C14/);
   }
   const goal=goalFixture(parent);goal.corrections=[{id:'timer-copy',requirement:'Preserve current play while correcting the requested timer label.'}];
@@ -105,7 +116,14 @@ test('staging preserves prior routes/source and records linked intake without di
     assert.equal(project.default_process,processID);assert.equal(project.processes.old,root+'/old-process.json');assert.equal(project.roles.old.file,root+'/old-role.json');
     const request=JSON.parse(await readFile(staged.request));
     assert.deepEqual(request.followup,{run_id:parent.id,revision:parent.revision});
-    assert.equal(request.inputs.request,JSON.stringify(goal));assert.equal(request.artifacts.prior,goal.accepted_candidate.check_artifact);
+    assert.equal(request.artifacts.prior,goal.accepted_candidate.check_artifact);assert.equal(request.artifacts.owner_goal,undefined);
+    assert.equal(staged.request_ready,false);assert.ok(Buffer.byteLength(request.inputs.request)<512);
+    assert.equal(JSON.parse(request.inputs.request).sha256,staged.goal.sha256);
+    const stageRequest=JSON.parse(await readFile(staged.goal_stage.request));
+    assert.equal(stageRequest.process,goalStageID);assert.equal(stageRequest.inputs.request,JSON.stringify(goal));
+    const bound=correctionRequest(Buffer.from(stageRequest.inputs.request),parent,'attempt_staged_goal/result');
+    assert.equal(bound.artifacts.owner_goal,'attempt_staged_goal/result');assert.deepEqual(bound.inputs,request.inputs);
+    assert.throws(()=>correctionRequest(Buffer.from(stageRequest.inputs.request),parent,''),/artifact ID required/);
     assert.equal(staged.preview,path.join(root,'staged','preview'));
     assert.deepEqual(JSON.parse(await readFile(root+'/project.json')),oldProject);
     assert.deepEqual(JSON.parse(await readFile(root+'/instance.json')),instance);

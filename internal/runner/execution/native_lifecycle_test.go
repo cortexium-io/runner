@@ -111,15 +111,40 @@ func TestHarnessStreamOverflowCannotSelectStaleFinal(t *testing.T) {
 		})
 		return string(data)
 	}
-	final := event(`{"outcome":"ready","outputs":{"article":"Complete"},"reason":"Done"}`)
+	finalText := `{"outcome":"ready","outputs":{"article":"Complete"},"reason":"Done"}`
+	final := event(finalText)
+	largeFinalText := `{"outcome":"ready","outputs":{"article":"` + strings.Repeat("x", 5<<10) + `"},"reason":""}`
 	oversized := event(strings.Repeat("x", 300<<10))
 	for _, tc := range []struct {
-		name   string
-		events []string
-		kind   string
+		name, kind, reason string
+		events             []string
+		finalBytes         int
+		finalKnown         bool
+		oversizedEvents    int
 	}{
-		{name: "oversized last event", events: []string{final, oversized}, kind: "failed"},
-		{name: "bounded final after overflow", events: []string{oversized, final}, kind: "returned"},
+		{
+			name:            "oversized last event",
+			events:          []string{final, oversized},
+			kind:            "failed",
+			reason:          "native stream event exceeded its 262144-byte bound",
+			oversizedEvents: 1,
+		},
+		{
+			name:            "bounded final after overflow",
+			events:          []string{oversized, final},
+			kind:            "returned",
+			finalKnown:      true,
+			finalBytes:      len(finalText),
+			oversizedEvents: 1,
+		},
+		{
+			name:       "oversized final JSON",
+			events:     []string{final, event(largeFinalText)},
+			kind:       "failed",
+			reason:     "max_output_bytes=4096",
+			finalKnown: true,
+			finalBytes: len(largeFinalText),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			disk := workspaceDisk(t)
@@ -151,6 +176,17 @@ cat <<'NATIVE_EVENTS'
 			o, err := native.Observe(t.Context(), a.AttemptID)
 			if err != nil || o.State != runner.Finished || o.End == nil || o.End.Kind != tc.kind {
 				t.Fatal("stream overflow selected the wrong final result", o, err)
+			}
+			if tc.reason != "" && !strings.Contains(o.End.Reason, tc.reason) {
+				t.Fatal("retry reason conflated final JSON size with transport event loss", o.End.Reason)
+			}
+			data, err := os.ReadFile(filepath.Join(disk.Root, "artifacts", a.AttemptID, "provenance.json"))
+			var proof runner.NativeProvenance
+			if err != nil || json.Unmarshal(data, &proof) != nil || (proof.FinalResultBytes != nil) != tc.finalKnown || proof.OversizedEvents != tc.oversizedEvents || proof.MaxOutputBytes != 4<<10 {
+				t.Fatal("durable native output facts lost final authority or the configured bound", proof, err)
+			}
+			if proof.FinalResultBytes != nil && *proof.FinalResultBytes != tc.finalBytes || tc.oversizedEvents > 0 && proof.StreamEventLimit != 256<<10 {
+				t.Fatal("durable final-byte count or stream event bound is inaccurate", proof)
 			}
 			if err := native.Release(t.Context(), a.AttemptID); err != nil {
 				t.Fatal(err)

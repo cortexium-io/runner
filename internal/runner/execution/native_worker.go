@@ -436,11 +436,10 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 				events.Proof.FirstEventAt = time.Now().UTC()
 			}
 			if overflow {
-				events.Proof.Dropped++
-				if !sharedCommand(a) && !events.Terminal {
-					// The skipped event might contain a newer final message. Only
-					// a later bounded result can restore final-result authority.
-					events.Final, events.FinalOverflow = nil, true
+				if sharedCommand(a) {
+					events.Proof.Dropped++
+				} else {
+					events.oversizedEvent(lineLimit)
 				}
 			} else if len(line) > 0 && !sharedCommand(a) {
 				events.accept(line)
@@ -640,7 +639,13 @@ func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped 
 	} else if runErr != nil || events.Failed != "" || events.FinalOverflow {
 		result.Kind, result.Reason = "failed", events.Failed
 		if result.Reason == "" && events.FinalOverflow {
-			result.Reason = "native final message exceeds max_output or the stream event bound"
+			if size := events.Proof.FinalResultBytes; size != nil {
+				result.Reason = nativeResultSizeReason(*size, runner.Bytes(events.Limit))
+			} else if events.Proof.OversizedEvents > 0 && events.Proof.StreamEventLimit > 0 {
+				result.Reason = fmt.Sprintf("native stream event exceeded its %d-byte bound and was dropped; no later bounded final result restored final-result authority", events.Proof.StreamEventLimit)
+			} else {
+				result.Reason = "native output overflow prevented a final result; exact final byte count and stream-loss facts are unavailable"
+			}
 		}
 		if result.Reason == "" {
 			result.Reason = "native executable exited unsuccessfully; inspect the permitted harness configuration"

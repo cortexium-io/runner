@@ -69,7 +69,7 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 		}
 		resultsFile = options[0].Results
 	}
-	instructions := harnessInstructions
+	instructions := harnessInstructions + "\n" + resultBudgetBase
 	type taskContext struct {
 		*runner.TaskContext
 		BriefRef    string                  `json:"brief_ref,omitempty"`
@@ -248,12 +248,19 @@ type harnessTask struct {
 	WritePaths []string           `json:"write_paths"`
 }
 
+func nativeResultSizeReason(size int, limit runner.Bytes) string {
+	return fmt.Sprintf("native final JSON is %d UTF-8 bytes; max_output_bytes=%d. Shrink the whole JSON including escaping, outputs, reason and task_action, or use declared artifact outputs for larger evidence", size, limit)
+}
+
 func harnessResult(a runner.Assignment, text []byte, work string, store func(string, []byte) error) (*runner.ExecutionEnd, error) {
 	fail := func(reason string) (*runner.ExecutionEnd, error) {
 		return &runner.ExecutionEnd{Kind: "failed", Reason: reason}, nil
 	}
-	if len(text) == 0 || int64(len(text)) > int64(a.Setup.Profile.MaxOutput) {
-		return fail("native result is missing or exceeds max_output")
+	if len(text) == 0 {
+		return fail("native result is missing")
+	}
+	if int64(len(text)) > int64(a.Setup.Profile.MaxOutput) {
+		return fail(nativeResultSizeReason(len(text), a.Setup.Profile.MaxOutput))
 	}
 	var wire struct {
 		Outcome string            `json:"outcome"`

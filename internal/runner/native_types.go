@@ -108,6 +108,10 @@ type NativeProvenance struct {
 	RequestDigest    string                `json:"request_sha256"`
 	PromptBytes      int                   `json:"runner_prompt_bytes"`
 	SchemaBytes      int                   `json:"output_schema_bytes"`
+	MaxOutputBytes   Bytes                 `json:"max_output_bytes,omitempty"`
+	FinalResultBytes *int                  `json:"final_result_bytes,omitempty"`
+	StreamEventLimit Bytes                 `json:"stream_event_limit_bytes,omitempty"`
+	OversizedEvents  int                   `json:"oversized_stream_events,omitempty"`
 	UsageScope       string                `json:"usage_scope"`
 	Context          *NativeContextFacts   `json:"context,omitempty"`
 	ResultsInput     *NativeInputFile      `json:"results_input,omitempty"`

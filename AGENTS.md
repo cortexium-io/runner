@@ -2,6 +2,18 @@
 
 ## Current authority and scope
 
+On 16 November Dan also approved, through the existing Jack's Break owner chat,
+"Yes, fix the intake and continue" for an ordinary frontend owner-reference
+intake and the authorised Pocket Hideout house-ad request. The owner then asked
+for the smallest project-owned test-author/check/experience capability supplying
+controlled Google-status and phone/desktop observations, preserving every
+mandatory candidate, nine-family, native and release obligation. Keep this goal
+separate from Sudoku. Bounded generic read-only source-command integration and
+explicitly qualified reviewer profiles are authorised; do not add ad logic to
+Core, fabricate proof, weaken gates, increase allowances or implement product
+work outside Runner. Preserve the active qualified runtime/history and coordinate
+installation with its owner.
+
 On 16 November Dan explicitly authorized the bounded correction preflight:
 configure project-owned verification through the existing qualified shared-command
 executor and make the retained-run count guard optional while keeping byte

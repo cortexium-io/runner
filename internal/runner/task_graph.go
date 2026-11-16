@@ -314,11 +314,15 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 			ctx.UnlimitedTasks, ctx.RemainingTasks = true, -1
 		}
 	}
-	if len(r.Attempts) > 0 {
-		last := r.Attempts[len(r.Attempts)-1]
-		if last.Step == r.Step && last.Visit == r.Visit && last.End != nil && last.End.Kind == "failed" {
+	for i := len(r.Attempts) - 1; i >= 0; i-- {
+		last := r.Attempts[i]
+		if last.Step != r.Step || last.Visit != r.Visit || last.End == nil {
+			continue
+		}
+		if last.End.Kind == "failed" {
 			ctx.PreviousFailure = Clip(last.End.Reason)
 		}
+		break
 	}
 	for _, name := range root.Process.Tasks.Roles {
 		role := root.Roles[name]

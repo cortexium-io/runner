@@ -79,6 +79,58 @@ and pin the replacement helper before a new normal linked intake. No Core change
 or repetition of unchanged full workflow checks is needed for this script/config
 repair, and no product source or prior evidence is reset.
 
+The second intake, `run_T4ITPZE6BH22D7N34ESJ27A2E2`, passed baseline capture
+but also failed before a product writer ran. Four research results exceeded the
+native 8 KiB response bound. The parent autonomously tried to replan, but the
+17,294-byte inline owner document plus task metadata reached 20,541 bytes against
+the existing 20,480-byte state reserve. All eleven executions and passing baseline
+evidence remain retained. This exposed a data-flow error, not a reason to raise
+another allowance: owner documents and detailed evidence belong in declared
+artifacts, with compact references and summaries in operational state/context.
+
+The correction keeps the existing limits and store. One fixed, model-free goal
+stager preserves the original bytes/SHA as a typed artifact. The complete process
+passes that artifact to every actor and binds it directly into fixed source and
+browser checks. Research and independent assessments retain detailed files while
+returning short summaries. The exact-document Core/SQLite plan, four failed
+research turns, redelegation, checks/reviews and restart fixture peaks at 3,488
+state bytes under the same reserve. Actual isolated Core/shared-Node staging of
+the original document also passes with one settled execution and exact retained
+bytes; its fixture is removed. These are lifecycle proofs, not product acceptance.
+
+Current native prompts now reuse the existing whole-JSON/UTF-8/escaping budget
+instruction. Final-byte overflow and oversized transport events have separate
+bounded facts and actionable reasons; unknown historical measurements remain
+unknown. Saved retry reconstruction preserves the relevant settled same-visit
+failure rather than losing it behind an unfinished attempt. This changes no model,
+timeout, byte ceiling, final-result authority or cleanup contract.
+
+### Ordinary frontend references and project-owned verification, authorised 16 November 2026
+
+The separate Pocket Hideout house-ad request cannot use the fixed historical
+mobile review reference. The owner explicitly approved correcting intake and
+continuing through the complete frontend process. A new project-owned fixed
+shared command stages the exact owner brief and its SHA as readable reference
+data, explicitly distinct from candidate evidence or approval. Historical stagers
+and runs remain unchanged. Future request-scoped review roles retain every
+mandatory candidate, nine-family, native and release obligation.
+
+Reference intake alone does not establish the requested controlled no-fill/card
+observations. Reuse the shared fixed-command lifecycle for an authenticated,
+read-only current source candidate, keeping current patch/seed/tree checks and
+other coordinator state denied. A separate explicitly selected native image
+review role assesses project evidence before existing source approval; reports
+also reach the correction owner. Product verification code is authored and run
+inside Runner. The existing protected qualification/export/experience/native/
+owner-decision suffix remains intact. Shared network authority is broad when
+enabled; trusted verifier request blocking is not an OS loopback-only boundary.
+
+No ad-specific conditions belong in Core. Qualify the generic source adapter and
+actual configured browser/image access on disposable resources before selecting
+the future route. Keep the ad and Sudoku goals/workspaces separate and combine
+their project overlays into the actual current instance rather than installing
+an earlier configuration snapshot. No merge or production authority is granted.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then

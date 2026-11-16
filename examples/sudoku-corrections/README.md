@@ -4,12 +4,19 @@ This stages a new `correct-sudoku-preview` route beside the preserved historical
 processes. It does not install configuration, submit work, edit the app, execute
 product tests, replace the running preview or grant release authority.
 
+The full owner JSON is preserved once through `stage-sudoku-goal`, a fixed,
+network-disabled shared command. It receives the exact raw goal through `{goal}`
+and retains those unchanged UTF-8 bytes as `owner-goal.json`. Its compact digest
+summary says **owner-document-only**: staging authenticates neither source nor
+product acceptance. It has one command and no model or child delegation.
+
 ```sh
 node examples/sudoku-corrections/configure.mjs \
   --instance /absolute/current/config/instance.json \
   --parent-inspect /absolute/completed-parent-inspect.json \
   --goal /absolute/frozen-correction-goal.json \
   --capture-baseline /absolute/examples/project-verification/capture-baseline.mjs \
+  --goal-stager /absolute/immutable/stage-goal.mjs \
   --root /absolute/new/staged-config
 ```
 
@@ -23,6 +30,17 @@ process and role by reference, selects the new future default, keeps profiles,
 model effort, concurrency, local retries, timeouts and byte safeguards, and records
 the authorized disabled aggregate-work and retained-run-count guards. The latter
 requires the separately qualified runtime supporting `max_runs: 0` before install.
+
+`requests/stage-goal.json` is ready for that first process. Its completed `goal`
+artifact becomes the required `owner_goal` input of the main process.
+`requests/correction.template.json` deliberately lacks that ID and is not ready to
+submit. `correctionRequest(originalBytes, parentInspect, stageArtifactID)` binds
+it to a real typed artifact. Choose the explicit new outer request ID when
+continuing after a failed historical intake; never edit the preserved owner bytes
+to generate an ID. The main `request:text` is only a small digest/purpose pointer.
+Every child receives the same declared owner artifact, reads its relevant sections
+and overall obligations, and verifies its digest. Baseline `--request` and verifier
+`--goal` bind that exact file, never the compact pointer.
 
 One fixed baseline child authenticates accepted source and preserves source-only
 changes once. A separate read-only research role receives explicit network access
@@ -53,6 +71,13 @@ without `--request`; a failed compatibility probe returns to project test repair
 It does not encode old four-tool/hint-wizard gates
 or require an arbitrary legacy geometry count.
 
+Research returns full dated citations in `research:artifact`; independent source
+and UX reviewers return complete per-ID reconciliation and actually viewed image
+names in `assessment:artifact`. Their `report:text` summaries stay at most 1 KiB,
+with full final envelopes within the unchanged 8 KiB limit. The lead and writers
+read those canonical files rather than copying their contents into task plans.
+No acceptance or proof is discarded to fit the operational record.
+
 Source and visual reviewers are separate, read-only actors. They reconcile every
 numbered requirement and personally inspect the current whole/open-panel images,
 independently of aggregate test success. Only after matching current acceptance
@@ -64,3 +89,18 @@ release-gate waiver is granted.
 The exporter, profiles, optional count policy and synthetic runtime contracts must
 be qualified before installation. A staged manifest explicitly records that work
 as pending. No generic launcher, scheduler, DSL, cache daemon or task ledger is added.
+
+Focused model-free checks:
+
+```sh
+node --test examples/sudoku-corrections/*.test.mjs
+go test -race ./examples/sudoku-corrections -run '^TestGeneratedCorrection'
+go test -race ./examples/sudoku-corrections -run '^TestWorkflowArtifactOwnerGoalResearchRepair$'
+```
+
+The workflow proof uses real Core/private SQLite with every execution intercepted.
+It preserves a 17,294-byte owner artifact, admits the four-task plan, exhausts the
+unchanged four research attempts, redelegates automatically and persists/reopens
+the check/review history. It executes no product commands or models. Set
+`RUNNER_SUDOKU_OWNER_GOAL` for the separately opt-in exact original-document digest
+proof; ordinary tests use synthetic data.

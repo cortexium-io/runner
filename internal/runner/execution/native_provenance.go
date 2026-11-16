@@ -33,6 +33,7 @@ func harnessProvenance(a runner.Assignment, binary, work string) runner.NativePr
 		StartedAt:        time.Now().UTC(),
 		CleanupAssurance: "cooperative-known-processes",
 		UsageScope:       "cli-turn-cumulative",
+		MaxOutputBytes:   p.MaxOutput,
 		Gaps: []string{
 			"Requested model and effort are recorded; CLI telemetry may not attest the resolved provider/model.",
 			"Tool arguments, outputs, private reasoning and credentials are deliberately not retained.",
@@ -119,12 +120,27 @@ func (e *harnessEvents) use(kind, name, status, evidence string) {
 }
 
 func (e *harnessEvents) final(text []byte) {
+	size := len(text)
+	e.Proof.MaxOutputBytes = runner.Bytes(e.Limit)
+	e.Proof.FinalResultBytes = &size
 	e.FinalOverflow = len(text) > e.Limit
 	if e.FinalOverflow {
 		e.Final = nil
 		return
 	}
 	e.Final = append(e.Final[:0], text...)
+}
+
+func (e *harnessEvents) oversizedEvent(limit int) {
+	e.Proof.Dropped++
+	e.Proof.OversizedEvents++
+	e.Proof.StreamEventLimit = runner.Bytes(limit)
+	if !e.Terminal {
+		// This event could contain a newer final. Its size/type is unknown;
+		// an earlier candidate must not survive as authoritative evidence.
+		e.Final, e.FinalOverflow = nil, true
+		e.Proof.FinalResultBytes = nil
+	}
 }
 
 func (e *harnessEvents) accept(line []byte) {

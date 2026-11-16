@@ -18,6 +18,33 @@ import (
 // Load the actual generated route without creating an executor or dispatching
 // work. The selected executable is this test binary and is only statted.
 func TestGeneratedCorrectionRouteLoadsAndFitsFrozenDefinitions(t *testing.T) {
+	snapshot := generatedCorrectionSnapshot(t)
+	policy := snapshot.Instance.Storage
+	project := snapshot.Projects["sudoku-preview"]
+	if len(project.Processes) != 3 || project.DefaultProcess != "correct-sudoku-preview" || snapshot.Instance.EnforceWorkLimits || policy.Database.MaxRuns != 0 {
+		t.Fatal("new route changed preserved processes or authorized optional policy")
+	}
+	definition := project.Processes[project.DefaultProcess]
+	roles := map[string]runner.Role{definition.Steps[0].Role: project.Roles[definition.Steps[0].Role]}
+	profiles := map[string]string{}
+	for _, name := range definition.Tasks.Roles {
+		roles[name] = project.Roles[name]
+		profiles[name] = "default"
+	}
+	profiles[definition.Steps[0].Role] = "default"
+	_, frozen, err := runner.MarshalRunRecord(runner.Run{Process: definition, Roles: roles, Profiles: profiles})
+	if err != nil || len(frozen) > int(policy.Database.MaxRecord) {
+		t.Fatalf("aggregate frozen definition: %d/%d %v", len(frozen), policy.Database.MaxRecord, err)
+	}
+	if len(roles) != 8 || project.Roles["sudoku-correction-research"].Execution.Native.Network != true || project.Roles["sudoku-correction-check"].Execution.Access != "workspace-read" {
+		t.Fatal("configured role independence, research permission or fixed read-only executor differs")
+	}
+	t.Logf("new eight-role frozen definition: %d/%d bytes; no executor created", len(frozen), policy.Database.MaxRecord)
+	queuedDefinitionRoundtrip(t, snapshot, `{"kind":"owner-goal-reference","sha256":"`+strings.Repeat("a", 64)+`","bytes":17294}`)
+}
+
+func generatedCorrectionSnapshot(t *testing.T) runner.Snapshot {
+	t.Helper()
 	for _, file := range []string{"roles.mjs", "configure.mjs", "../../testdata/sudoku-corrections/configuration.mjs", "../sudoku-continuation/followup.mjs", "../sudoku-continuation/configure.mjs"} {
 		if _, err := os.ReadFile(file); err != nil {
 			t.Fatal(err)
@@ -68,7 +95,7 @@ console.log(JSON.stringify(staged));`
 		t.Fatal("staged correction configuration is incompatible with the current runtime", err)
 	}
 	project := snapshot.Projects["sudoku-preview"]
-	if len(project.Processes) != 2 || project.DefaultProcess != "correct-sudoku-preview" || snapshot.Instance.EnforceWorkLimits || snapshot.Instance.Storage.Database.MaxRuns != 0 {
+	if len(project.Processes) != 3 || project.DefaultProcess != "correct-sudoku-preview" || snapshot.Instance.EnforceWorkLimits || snapshot.Instance.Storage.Database.MaxRuns != 0 {
 		t.Fatal("new route changed preserved processes or authorized optional policy")
 	}
 	expected := policy
@@ -76,23 +103,7 @@ console.log(JSON.stringify(staged));`
 	if !reflect.DeepEqual(expected, snapshot.Instance.Storage) || snapshot.Instance.Concurrency != 1 || snapshot.Instance.MaxActiveAttempts != 2 || snapshot.Instance.TaskConcurrency != 2 {
 		t.Fatal("staging widened byte safeguards or execution concurrency")
 	}
-	definition := project.Processes[project.DefaultProcess]
-	roles := map[string]runner.Role{definition.Steps[0].Role: project.Roles[definition.Steps[0].Role]}
-	profiles := map[string]string{}
-	for _, name := range definition.Tasks.Roles {
-		roles[name] = project.Roles[name]
-		profiles[name] = "default"
-	}
-	profiles[definition.Steps[0].Role] = "default"
-	_, frozen, err := runner.MarshalRunRecord(runner.Run{Process: definition, Roles: roles, Profiles: profiles})
-	if err != nil || len(frozen) > int(policy.Database.MaxRecord) {
-		t.Fatalf("aggregate frozen role/process definition exceeds unchanged record capacity: %d %v", len(frozen), err)
-	}
-	if len(roles) != 8 || project.Roles["sudoku-correction-research"].Execution.Native.Network != true || project.Roles["sudoku-correction-check"].Execution.Access != "workspace-read" {
-		t.Fatal("configured role independence, research permission or fixed read-only executor differs")
-	}
-	t.Logf("new eight-role frozen definition: %d/%d bytes; no executor created", len(frozen), policy.Database.MaxRecord)
-	queuedDefinitionRoundtrip(t, snapshot, `{"request":"`+strings.Repeat("x", 17280)+`"}`)
+	return snapshot
 }
 
 func TestPreparedCorrectionConfigurationLoads(t *testing.T) {
@@ -112,7 +123,7 @@ func TestPreparedCorrectionConfigurationLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := snapshot.Projects["sudoku-preview"]
-	if project.DefaultProcess != "correct-sudoku-preview" || len(project.Processes) != 3 || snapshot.Instance.Storage.Database.MaxRuns != 0 || snapshot.Instance.EnforceWorkLimits {
+	if project.DefaultProcess != "correct-sudoku-preview" || len(project.Processes) != 4 || snapshot.Instance.Storage.Database.MaxRuns != 0 || snapshot.Instance.EnforceWorkLimits {
 		t.Fatal("prepared overlay lost old routes or optional-count policy")
 	}
 	definition := project.Processes[project.DefaultProcess]
@@ -125,7 +136,7 @@ func TestPreparedCorrectionConfigurationLoads(t *testing.T) {
 		t.Fatalf("actual staged role catalog exceeds unchanged record capacity: %d %v", len(frozen), err)
 	}
 	t.Logf("actual staged configuration/old routes loaded; new frozen definition %d/%d bytes; no executor created", len(frozen), snapshot.Instance.Storage.Database.MaxRecord)
-	requestFile := filepath.Join(filepath.Dir(filepath.Dir(file)), "requests", "correction.json")
+	requestFile := filepath.Join(filepath.Dir(filepath.Dir(file)), "requests", "correction.template.json")
 	data, err := os.ReadFile(requestFile)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +169,7 @@ func queuedDefinitionRoundtrip(t *testing.T, snapshot runner.Snapshot, goal stri
 		Status:    "Queued", Revision: 1, Created: now, Updated: now,
 	}
 	var artifacts []runner.Artifact
-	for _, name := range []string{"patch", "checks", "prior", "handoff"} {
+	for _, name := range []string{"owner_goal", "patch", "checks", "prior", "handoff"} {
 		id := "attempt_capacity_fixture/" + name
 		r.Inputs[name] = runner.Value{ArtifactID: id}
 		artifacts = append(artifacts, runner.Artifact{ID: id, RunID: r.ID, ProjectID: r.ProjectID, Bytes: 1})

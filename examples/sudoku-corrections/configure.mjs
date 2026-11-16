@@ -7,7 +7,8 @@ import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 import {emptyOwnedRoot} from '../sudoku-continuation/configure.mjs';
 import {overlayInstance} from '../sudoku-continuation/followup.mjs';
-import {correctionFacts,correctionRoles,correctionProcess,names,processID,testEntry,testHelpers} from './roles.mjs';
+import {correctionFacts,correctionRoles,correctionProcess,goalStageRole,goalStageProcess,goalStageID,goalStageRoleID,names,processID,testEntry,testHelpers} from './roles.mjs';
+import {ownerDocument,ownerGoalPointer} from './stage-goal.mjs';
 
 const hash=data=>createHash('sha256').update(data).digest('hex');
 const inside=(root,value)=>value===root||value.startsWith(root+path.sep);
@@ -32,7 +33,7 @@ function argument(args,flag) {
   return absolute(args[index+1],flag);
 }
 
-export function correctionRuntime(parent,{capture,root}) {
+export function correctionRuntime(parent,{capture,root,goalStager=fileURLToPath(new URL('./stage-goal.mjs',import.meta.url))}) {
   const {checker}=correctionFacts(parent),command=checker.command,env=command.env;
   const current=Boolean(parent.roles[names.check]);
   const previousPreview=current?absolute(env.RUNNER_SUDOKU_PREVIEW_ROOT,'accepted preview'):
@@ -43,7 +44,7 @@ export function correctionRuntime(parent,{capture,root}) {
   if(required.some(name=>!env[name]))throw new Error('accepted runtime lacks pinned tool/cache settings');
   const pin=(name,flag)=>current?absolute(env['RUNNER_SUDOKU_'+name],name):argument(command.args,flag);
   return {
-    capture:absolute(capture,'capture'),admission:absolute(current?env.RUNNER_SUDOKU_ADMISSION:command.args[0],'admission'),
+    capture:absolute(capture,'capture'),goalStager:absolute(goalStager,'goal stager'),admission:absolute(current?env.RUNNER_SUDOKU_ADMISSION:command.args[0],'admission'),
     node:current?absolute(command.args[0],'node'):argument(command.args,'--node'),go:pin('GO','--go'),
     modules:pin('MODULES','--modules'),playwright:pin('PLAYWRIGHT','--playwright'),chromium:pin('CHROMIUM','--chromium'),webkit:pin('WEBKIT','--webkit'),
     frontendHelper:absolute(env.RUNNER_SUDOKU_FRONTEND_HELPER,'frontend helper'),path:env.PATH,goCache:absolute(env.GOCACHE,'GOCACHE'),
@@ -67,23 +68,40 @@ export function validateCorrectionGoal(goal,parent) {
     throw new Error('goal lacks exact accepted source/check/handoff identities');
 }
 
+export function correctionRequest(goalBytes,parent,ownerGoalArtifact) {
+  if(!artifact(ownerGoalArtifact))throw new Error('completed goal-stage artifact ID required');
+  const request=correctionRequestTemplate(goalBytes,parent);
+  request.artifacts.owner_goal=ownerGoalArtifact;
+  return request;
+}
+
+function correctionRequestTemplate(goalBytes,parent) {
+  const goal=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(goalBytes));
+  validateCorrectionGoal(goal,parent);
+  const facts=correctionFacts(parent),accepted=goal.accepted_candidate;
+  return {request_id:goal.request_id,project:parent.project_id,process:processID,followup:{run_id:parent.id,revision:parent.revision},
+    inputs:{request:ownerGoalPointer(goalBytes)},artifacts:{patch:facts.patch,checks:facts.checks,prior:accepted.check_artifact,handoff:accepted.handoff_artifact}};
+}
+
 export async function configureCorrections(values) {
   const root=await emptyOwnedRoot(absolute(values.root,'--root'));
   const instanceFile=await realpath(absolute(values.instance,'--instance'));
   const inspectFile=await realpath(absolute(values['parent-inspect'],'--parent-inspect'));
   const goalFile=await realpath(absolute(values.goal,'--goal'));
   const capture=await realpath(absolute(values['capture-baseline'],'--capture-baseline'));
-  const [instanceBytes,parentBytes,goalBytes,captureBytes]=await Promise.all([
-    bounded(instanceFile,16<<10),bounded(inspectFile,16<<20),bounded(goalFile,128<<10),bounded(capture,64<<10)
+  const goalStager=await realpath(absolute(values['goal-stager']||fileURLToPath(new URL('./stage-goal.mjs',import.meta.url)),'--goal-stager'));
+  const [instanceBytes,parentBytes,goalBytes,captureBytes,goalStagerBytes]=await Promise.all([
+    bounded(instanceFile,16<<10),bounded(inspectFile,16<<20),bounded(goalFile,40<<10),bounded(capture,64<<10),bounded(goalStager,64<<10)
   ]);
-  const instance=JSON.parse(instanceBytes),parent=JSON.parse(parentBytes),goal=JSON.parse(goalBytes),facts=correctionFacts(parent);
+  const instance=JSON.parse(instanceBytes),parent=JSON.parse(parentBytes),goal=JSON.parse(goalBytes);
+  correctionFacts(parent);
   validateCorrectionGoal(goal,parent);
-  const accepted=goal.accepted_candidate;
+  ownerDocument(goalBytes);
   const workspace=await realpath(parent.repository);
   if(inside(workspace,root)||inside(root,workspace))throw new Error('staged configuration must not overlap the canonical product workspace');
-  const runtime=correctionRuntime(parent,{capture,root});
+  const runtime=correctionRuntime(parent,{capture,root,goalStager});
   for(const binary of [runtime.node,runtime.go,runtime.admission])await access(binary,constants.X_OK);
-  const roles=correctionRoles(parent,runtime),process=correctionProcess(parent);
+  const roles=[...correctionRoles(parent,runtime),goalStageRole(runtime)],process=correctionProcess(parent),stage=goalStageProcess(parent);
   let project,projectFile;
   for(const reference of instance.projects||[]) {
     const filename=path.resolve(path.dirname(instanceFile),reference),candidate=JSON.parse(await bounded(filename,16<<10));
@@ -93,13 +111,14 @@ export async function configureCorrections(values) {
     }
   }
   if(!project||await realpath(path.resolve(path.dirname(projectFile),project.workspace))!==workspace)throw new Error('configured project and accepted parent workspace differ');
-  if(project.processes?.[processID]||Object.values(names).some(id=>project.roles?.[id]))throw new Error('correction route already exists; preserve it and rejoin its saved request');
+  if(project.processes?.[processID]||project.processes?.[goalStageID]||[...Object.values(names),goalStageRoleID].some(id=>project.roles?.[id]))throw new Error('correction route already exists; preserve it and rejoin its saved request');
   const config=path.join(root,'config'),overlayProject=path.join(config,'projects',parent.project_id+'.json');
   const preserved=structuredClone(project);
   preserved.workspace=workspace;
   preserved.processes=Object.fromEntries(Object.entries(project.processes).map(([id,file])=>[id,path.resolve(path.dirname(projectFile),file)]));
   preserved.roles=Object.fromEntries(Object.entries(project.roles).map(([id,role])=>[id,{...role,file:path.resolve(path.dirname(projectFile),role.file)}]));
   preserved.processes[processID]=path.join(config,'processes',processID+'.json');
+  preserved.processes[goalStageID]=path.join(config,'processes',goalStageID+'.json');
   preserved.default_process=processID;
   for(const role of roles)preserved.roles[role.id]={file:path.join(config,'roles',role.id+'.json')};
   const prepared=overlayInstance(instance,instanceFile,projectFile,overlayProject);
@@ -107,7 +126,7 @@ export async function configureCorrections(values) {
   prepared.storage.database.max_runs=0;
   const documents=[
     [path.join(config,'instance.json'),prepared],[overlayProject,preserved],
-    [path.join(config,'processes',processID+'.json'),process],...roles.map(role=>[path.join(config,'roles',role.id+'.json'),role])
+    [path.join(config,'processes',processID+'.json'),process],[path.join(config,'processes',goalStageID+'.json'),stage],...roles.map(role=>[path.join(config,'roles',role.id+'.json'),role])
   ];
   for(const [filename,value] of documents)if(Buffer.byteLength(JSON.stringify(value,null,2)+'\n')>16<<10)throw new Error('configuration exceeds loader16KiB bound: '+filename);
   for(const directory of [root,config,path.join(config,'projects'),path.join(config,'processes'),path.join(config,'roles'),path.join(root,'requests'),runtime.preview])
@@ -119,14 +138,15 @@ export async function configureCorrections(values) {
     await writeFile(filename,bytes,{mode:0o600,flag:'wx'});
   };
   for(const [filename,value] of documents)await json(filename,value);
-  const request={request_id:goal.request_id,project:parent.project_id,process:processID,followup:{run_id:parent.id,revision:parent.revision},
-    inputs:{request:goalBytes.toString('utf8')},artifacts:{patch:facts.patch,checks:facts.checks,prior:accepted.check_artifact,handoff:accepted.handoff_artifact}};
-  const requestFile=path.join(root,'requests','correction.json');
-  await json(requestFile,request,256<<10);
+  const requestFile=path.join(root,'requests','correction.template.json'),stageFile=path.join(root,'requests','stage-goal.json');
+  await json(requestFile,correctionRequestTemplate(goalBytes,parent));
+  await json(stageFile,{request_id:goal.request_id+'-stage-owner-goal',project:parent.project_id,process:goalStageID,
+    inputs:{request:goalBytes.toString('utf8')}},256<<10);
   const manifest={schema:1,prepared_at:new Date().toISOString(),status:'staged_qualification_pending',submitted:false,
-    instance:path.join(config,'instance.json'),project_file:overlayProject,process:processID,request:requestFile,workspace,preview:runtime.preview,
+    instance:path.join(config,'instance.json'),project_file:overlayProject,process:processID,request:requestFile,request_ready:false,workspace,preview:runtime.preview,
+    goal_stage:{process:goalStageID,request:stageFile,output:'goal',binding:'Supply completed stage output goal as main artifacts.owner_goal using correctionRequest; template is deliberately incomplete'},
     parent:{id:parent.id,revision:parent.revision,inspect:inspectFile,sha256:hash(parentBytes)},goal:{path:goalFile,sha256:hash(goalBytes),bytes:goalBytes.length},
-    original_instance:{path:instanceFile,sha256:hash(instanceBytes)},baseline_exporter:{path:capture,sha256:hash(captureBytes)},
+    original_instance:{path:instanceFile,sha256:hash(instanceBytes)},baseline_exporter:{path:capture,sha256:hash(captureBytes)},goal_stager:{path:goalStager,sha256:hash(goalStagerBytes)},
     project_verification:{entry:testEntry,helpers:testHelpers,status:'not_authored; future Runner task owns product implementation'},
     policy:{enforce_work_limits:false,max_runs:0,qualification:'Optional retained-run guard and baseline/exporter/profile fixtures must pass before installation; byte safeguards unchanged'},
     authority:'Staging only; no live service, policy, product source, preview process or progress database changed. Old processes/roles remain referenced unchanged. Core validates linked intake; product tests are authored/executed inside that future run.'};
@@ -136,7 +156,7 @@ export async function configureCorrections(values) {
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   try {
-    const {values}=parseArgs({options:Object.fromEntries(['root','instance','parent-inspect','goal','capture-baseline'].map(name=>[name,{type:'string'}]))});
+    const {values}=parseArgs({options:Object.fromEntries(['root','instance','parent-inspect','goal','capture-baseline','goal-stager'].map(name=>[name,{type:'string'}]))});
     process.stdout.write(JSON.stringify(await configureCorrections(values),null,2)+'\n');
   } catch(error) {process.stderr.write(error.message+'\n');process.exitCode=1;}
 }
