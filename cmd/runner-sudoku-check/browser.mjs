@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,classifyFailure,telemetryDimensions,neighborGeometry} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryDimensions,neighborGeometry} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
@@ -394,7 +394,7 @@ async function sideJourney(browser,engine,recipe) {
     assert.deepEqual(await snapshots(page),saved,'side preference reload changed saved progress');
     assert.ok((await measure(page)).controls.x<(await measure(page)).frame.x,'side preference did not survive reload');
     const oldPath=new URL(page.url()).pathname;
-    await action(page,page.getByRole('button',{name:'New puzzle',exact:true}),true,{secondary:true});
+    await newSudokuFromPlay(page,target=>action(page,target,true,{secondary:true}));
     await page.waitForURL(url=>/^\/sudoku\//.test(url.pathname)&&url.pathname!==oldPath);await settle(page);
     assert.ok((await measure(page)).controls.x<(await measure(page)).frame.x,'side preference did not survive a new puzzle');
     const freshSaved=await snapshots(page);for(const old of saved)assert.deepEqual(freshSaved.find(row=>row.key===old.key),old,'New puzzle lost the prior saved board');
@@ -460,7 +460,7 @@ async function completionJourney(browser,engine,recipe,touch=false) {
     await action(page,savedBoardAction(page,recipe.identity,{complete:true}),touch,{secondary:true});
     assert.deepEqual((await state(page)).rendered,rendered,'home result view did not restore solved board');
     const oldPath=new URL(page.url()).pathname;
-    const fresh=page.getByRole('button',{name:'New puzzle',exact:true});await action(page,fresh,touch,{secondary:true});
+    await newSudokuFromPlay(page,target=>action(page,target,touch,{secondary:true}));
     await page.waitForURL(url=>/^\/sudoku\//.test(url.pathname)&&url.pathname!==oldPath);await settle(page);
     assert.equal(await page.locator('.sudoku-play .completion:visible').count(),0,'New puzzle retained completed state');
     return {publication:recipe.publication,normal_UI_entries:rows.filter(row=>!row.given).length,solved:true,result_light_dark:true,reload:true,home_view:true,new_puzzle:true};

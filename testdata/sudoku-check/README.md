@@ -37,6 +37,10 @@ pointer events. The real entry/Undo/Redo journeys exercise their enabled state.
 History is tested before reload; the authored reload contract persists progress
 and starts fresh history. Home continuation binds the exact admitted board and
 accepts the authored “Open to check” action when a discovered save is unloaded.
+In-play New puzzle uses one shared driver: use its visible heading affordance or
+open More actions and activate its scoped secondary button. Completion-dialog
+actions remain separate. The same trusted activation and visibility/disabled/
+coverage checks apply to either affordance.
 
 Actions and resizes retain bounded before/after viewport, scroll, geometry,
 selection and focus facts. Resize setup does not force cell focus or reset page

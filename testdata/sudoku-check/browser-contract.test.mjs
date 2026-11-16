@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,classifyFailure,telemetryDimensions,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryDimensions,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -165,6 +165,35 @@ test('home continuation targets the admitted board and accepts its authored unlo
   assert.ok(names[1].test('View board Sudoku easy 9 by 9'));
   assert.equal(names[1].test('Resume Sudoku easy 9 by 9'),false);
   assert.throws(()=>savedBoardAction(page,'bad" selector'),/invalid admitted/);
+});
+
+test('in-play New follows its visible header or scoped More actions without touching completion dialogs',async()=>{
+  for(const setup of [{header:true,open:false},{header:false,open:false},{header:false,open:true}]) {
+    let open=setup.open;const actions=[];
+    const header={id:'header',isVisible:async()=>setup.header},summary={id:'summary'},secondary={id:'secondary'};
+    const button=(role,options)=>{assert.equal(role,'button');assert.deepEqual(options,{name:'New puzzle',exact:true});return secondary};
+    const more={count:async()=>1,getAttribute:async name=>{assert.equal(name,'open');return open?'':null},getByRole:button};
+    const page={locator:selector=>{
+      if(selector==='.sudoku-play .play-topbar')return {getByRole:(role,options)=>{button(role,options);return header}};
+      if(selector==='.sudoku-play .more-puzzle-actions')return more;
+      assert.equal(selector,'.sudoku-play .more-puzzle-actions > summary');return summary;
+    }};
+    await newSudokuFromPlay(page,async target=>{
+      actions.push(target.id);
+      if(target===summary){assert.equal(open,false);open=true}
+      if(target===secondary)assert.equal(open,true,'secondary action was attempted inside a closed disclosure');
+    });
+    assert.deepEqual(actions,setup.header?['header']:setup.open?['secondary']:['summary','secondary']);
+  }
+});
+
+test('in-play New cannot manufacture a missing or ambiguous disclosure',async()=>{
+  for(const count of [0,2]) {
+    const page={locator:selector=>selector.endsWith('.play-topbar')?{getByRole:()=>({isVisible:async()=>false})}:{count:async()=>count}};
+    let actions=0;
+    await assert.rejects(newSudokuFromPlay(page,async()=>{actions++}),/one in-play More actions disclosure is required/);
+    assert.equal(actions,0);
+  }
 });
 
 test('only authored best-effort telemetry 4xx are nonblocking and retain their policy and safe dimensions',()=>{

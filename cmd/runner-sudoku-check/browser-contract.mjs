@@ -116,6 +116,21 @@ export function savedBoardAction(page,identity,{complete=false}={}) {
   return page.locator(`.saved-row[data-board-id="${identity}"]`).getByRole('button',{name:complete?/^View board Sudoku\b/:/^(Resume|Open to check) Sudoku\b/});
 }
 
+export async function newSudokuFromPlay(page,activate) {
+  const header=page.locator('.sudoku-play .play-topbar').getByRole('button',{name:'New puzzle',exact:true});
+  if(await header.isVisible()) {
+    await activate(header);
+    return;
+  }
+  // In-progress touch play keeps New secondary; desktop and solved play can
+  // expose it in the heading. Follow the actual affordance, never a viewport
+  // guess or an unrelated New button in a dialog.
+  const more=page.locator('.sudoku-play .more-puzzle-actions');
+  assert.equal(await more.count(),1,'one in-play More actions disclosure is required');
+  if(await more.getAttribute('open')===null)await activate(page.locator('.sudoku-play .more-puzzle-actions > summary'));
+  await activate(more.getByRole('button',{name:'New puzzle',exact:true}));
+}
+
 export function classifyFailure(failure) {
   const optional=failure.kind==='http'&&failure.method==='POST'&&failure.path==='/api/analytics/events'&&failure.status>=400&&failure.status<500;
   return {...failure,blocking:!optional,classification:optional?'best-effort-telemetry':'required-or-unclassified',...(optional?{
