@@ -38,6 +38,33 @@ reload cannot invalidate previously admitted completion capacity.
    examples. Verify the other hosts' actual runtimes rather than migrating them
    unnecessarily. Preserve the accepted Sudoku preview and report its status.
 
+Installed and verified on 16 November. Core runtime code
+`74a0d1062a5c5b969f580eba86d1bae16e350bae`, qualified with finite fixtures at
+`958fad14747337a9fd54e4ad0ffbb5f4ccaa2efc`, is installed with executable SHA-256
+`61a5d6d6ac15911932e2b658806623968438caba49241328dfa9570d143fa224`.
+The Black Magic instance explicitly disables work-limit enforcement for both
+Jack's Break and Sudoku. All 115 retained runs report unlimited effective budgets;
+schema 13 installation preserves byte-for-byte all 115 runs, 96 receipts, 629
+attempts, 532 artifacts and 730 artifact uses. No execution or historical retry
+was dispatched. The accepted Sudoku goal remains Completed with 88 spent.
+
+The focused/Core/SQLite/control/configuration/native-input and explicit finite
+boundary regressions pass with race/vet. All 17 model-free workflow journeys have
+passing coverage: 16 passed in the complete 404.909-second run; the one fixture
+which needed an explicit finite opt-in passed its 29.507-second focused rerun.
+Passing cases were not repeated. An over-broad ordinary execution-package batch
+hit its unchanged five-minute suite deadline; the affected payload/input suite
+passed separately in 43.687 seconds. Do not describe that batch or an unrun full
+repository gate as passing. Independent source review found no P1/P2 and Atlas
+compared the exact final commits; its static output is not native-model proof.
+
+Mega Mini's ShowIP, Techbase and Slack Bridge, and Always On's FlowStack backend,
+webapp and protos already run the legacy runtime without equivalent global work
+caps. Their local QA rejection limits and routes remain intact; no incompatible
+runtime migration was performed. The live-state preflight, exact table hashes,
+inventory, qualification, cleanup and policy report are canonical at
+`/Users/dan/Projects/runner-qualifications/20261116/optional-work-limits/result.md`.
+
 ### Live Sudoku workflow amendment, authorized 16 November 2026
 
 Continue the same retained root from 69 spent attempts. The owner explicitly

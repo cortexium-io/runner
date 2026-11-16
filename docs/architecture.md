@@ -46,6 +46,18 @@ excess work queues without consuming allowance. Revisions retain old attempts an
 replacement workers must coherently supersede the affected source, since revising
 a plan does not automatically undo files in the shared project.
 
+Aggregate attempt and total task-count enforcement is now opt-in through
+`Instance.EnforceWorkLimits` (`enforce_work_limits`, default false). The Core's
+effective policy applies to existing and future runs without rewriting frozen
+definitions or historical debits. Public budgets explicitly report unlimited
+with remaining -1; native request `work_policy` carries current authority over
+historical budget prose. Local retries/routes, depth, permissions, concurrency,
+timeouts and resource admission always apply. Policy toggles require restart.
+The same switch covers older Core collection/expanded-task cardinality; SQLite
+schema 13 removes hidden normalized attempt-count/position ceilings while retaining
+record and database byte limits. [Installation qualification](process-core-design.md#optional-total-work-limits-authorized-16-november-2026)
+records all 115 retained runs and unchanged row identities/bytes.
+
 Source tasks use one canonical project workspace. Absolute physical claims
 serialize overlapping writers and readers, including nested roots, existing
 symlink prefixes and case-insensitive host identity. Disjoint writers can overlap.
