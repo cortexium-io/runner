@@ -89,6 +89,7 @@ func frontendRecheckFixture(t *testing.T) (*Core, *frontendRecheckStore, *fronte
 	process.MaxAttempts = 37 // 20 already used plus the exact 17-attempt protected tail.
 	policy := DefaultStorage()
 	policy.MinFree = 0
+	policy.Database.MaxRuns = 1000 // This in-memory store retains the original finite fixture policy.
 	policy.Database.MaxRecord = 40 << 10
 	disk, err := OpenDisk(t.TempDir(), policy)
 	if err != nil {

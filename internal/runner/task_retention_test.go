@@ -47,6 +47,10 @@ func (s *retentionStore) DeleteFamily(ctx context.Context, ids []string) error {
 	return s.family.DeleteFamily(ctx, ids)
 }
 
+func (s *retentionStore) AvailableRunSlots(ctx context.Context) (int, error) {
+	return s.Store.(runner.RunCapacityStore).AvailableRunSlots(ctx)
+}
+
 type retentionResources struct {
 	*taskProbe
 	mu          sync.Mutex
@@ -162,6 +166,7 @@ func TestFamilyCollectionTransactionFailurePreservesEvidence(t *testing.T) {
 func TestFamilyCollectionRestartCompletesCommittedCleanup(t *testing.T) {
 	dir, s := t.TempDir(), plannedSnapshot(threeCards)
 	s.Instance.Storage.KeepRuns = "1ns"
+	s.Instance.Storage.Database.MaxRuns = 0
 	p := &retentionResources{taskProbe: newTaskProbe(), failForget: true}
 	close(p.allow)
 	first, _ := openRetention(t, dir, s, p, false)

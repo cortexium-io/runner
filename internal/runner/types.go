@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -66,7 +67,6 @@ func DefaultStorage() StoragePolicy {
 	p.MinFree = 5 << 30
 	p.Database.MaxSize = 256 << 20
 	p.Database.MaxRecord = 16 << 10
-	p.Database.MaxRuns = 1000
 	p.Logs.MaxPerAttempt = 2 << 20
 	p.Logs.KeepFor = "48h"
 	p.MaxArtifact = 16 << 20
@@ -74,20 +74,30 @@ func DefaultStorage() StoragePolicy {
 	return p
 }
 
-// RetainedRunCapacity applies the same recovery headroom to admission and the
-// store. A configured max_runs larger than physical record capacity is a ceiling,
-// not a promise that fan-out can consume reserved database recovery space.
+// RetainedRunCapacity preserves the configured finite count contract. Zero
+// disables that guard; actual database byte admission is owned by the store.
 func (p StoragePolicy) RetainedRunCapacity() int {
-	if p.Database.MaxRecord <= 0 {
+	if p.Database.MaxRuns == 0 || p.Database.MaxRecord <= 0 {
 		return 0
 	}
 	byCapacity := (int64(p.Database.MaxSize)/3 - 128*1024) / (3 * int64(p.Database.MaxRecord))
 	return min(p.Database.MaxRuns, max(0, int(byCapacity)))
 }
 
+// RetainedRunInventoryBound bounds trusted inventory/mutation input, not work
+// admission. Even with no configured count cap, each persisted run occupies at
+// least one byte of the database's bounded primary payload. Retention intents
+// and individual records have their own stricter byte bounds.
+func (p StoragePolicy) RetainedRunInventoryBound() int {
+	if p.Database.MaxRuns > 0 {
+		return p.Database.MaxRuns
+	}
+	return int(min(int64(math.MaxInt), max(0, int64(p.Database.MaxSize)/3)))
+}
+
 func (p StoragePolicy) Validate() error {
-	if p.Database.MaxRecord < 4096 || p.Database.MaxRecord > 1<<20 || p.Database.MaxSize < 1<<20 || p.Database.MaxRuns < 1 || p.Database.MaxRuns > 10000 {
-		return errors.New("database needs a 4KiB–1MiB record limit, at least 1MiB capacity and 1–10000 retained runs")
+	if p.Database.MaxRecord < 4096 || p.Database.MaxRecord > 1<<20 || p.Database.MaxSize < 1<<20 || p.Database.MaxRuns < 0 || p.Database.MaxRuns > 10000 {
+		return errors.New("database needs a 4KiB–1MiB record limit, at least 1MiB capacity and optional max_runs between zero and 10000")
 	}
 	if p.MaxManaged <= p.Database.MaxSize+2*p.Database.MaxRecord || p.MinFree < 0 || p.MaxArtifact < 1 || p.Logs.MaxPerAttempt < 1 || p.Logs.MaxPerAttempt > 4<<20 {
 		return errors.New("invalid managed-storage, artifact or log allowance")
@@ -598,6 +608,13 @@ type Store interface {
 	Artifact(context.Context, string) (Artifact, error)
 	HasConsumers(context.Context, string) (bool, error)
 	Delete(context.Context, string) error
+}
+
+// RunCapacityStore reports admission headroom from actual storage bytes. It is
+// required when the optional retained-run count guard is disabled. Slots reserve
+// one new run's state/definition/initial attempt, not maximum-sized historical rows.
+type RunCapacityStore interface {
+	AvailableRunSlots(context.Context) (int, error)
 }
 
 // Clone copies validated domain records. Untrusted JSON must be validated at

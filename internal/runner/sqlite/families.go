@@ -13,7 +13,7 @@ var _ runner.FamilyStore = (*Store)(nil)
 // familySelection contains placeholders only; run identities remain parameters.
 // Missing rows are allowed so a lost acknowledgement can safely rejoin deletion.
 func (s *Store) familySelection(ids []string) (string, []any, error) {
-	if len(ids) == 0 || len(ids) > s.maxRuns {
+	if len(ids) == 0 || len(ids) > s.runInventoryBound() {
 		return "", nil, errors.New("family deletion needs a nonempty bounded run set")
 	}
 	seen := make(map[string]bool, len(ids))

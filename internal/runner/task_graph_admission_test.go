@@ -10,6 +10,7 @@ import (
 
 func TestGeneralTaskAdmissionReservesFutureResultReferenceState(t *testing.T) {
 	p := DefaultStorage()
+	p.Database.MaxRuns = 1000
 	p.MinFree, p.Database.MaxRecord = 0, 4096
 	disk, err := OpenDisk(t.TempDir(), p)
 	if err != nil {
@@ -85,7 +86,9 @@ func TestGeneralTaskResumptionPersistenceFailureDoesNotAutoWaitForever(t *testin
 		{name: "completion reserve exhausted", exhausted: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			disk, err := OpenDisk(t.TempDir(), DefaultStorage())
+			policy := DefaultStorage()
+			policy.Database.MaxRuns = 1000
+			disk, err := OpenDisk(t.TempDir(), policy)
 			if err != nil {
 				t.Fatal(err)
 			}

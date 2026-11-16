@@ -29,7 +29,7 @@ func guardTaskRecoverySave(r runner.Run, previous []byte, allowed bool) error {
 }
 
 func (s *Store) SaveTaskRecovery(ctx context.Context, expected, after []runner.Run, receipt *runner.Receipt) error {
-	if len(expected) == 0 || len(expected) > s.maxRuns || len(after) == 0 || len(after) > len(expected) {
+	if len(expected) == 0 || len(expected) > s.runInventoryBound() || len(after) == 0 || len(after) > len(expected) {
 		return errors.New("task recovery needs a complete bounded family and affected run set")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

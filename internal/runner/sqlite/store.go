@@ -4,6 +4,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -246,7 +247,7 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		return nil, e
 	}
 	s.maxRuns = p.RetainedRunCapacity()
-	if s.maxRuns < 1 {
+	if p.Database.MaxRuns > 0 && s.maxRuns < 1 {
 		return nil, errors.New("database allowance cannot reserve one run plus recovery space")
 	}
 	ok = true
@@ -361,13 +362,31 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, artifacts, receipt); err != nil {
 		return err
 	}
-	if errors.Is(e, sql.ErrNoRows) {
+	newRun := errors.Is(e, sql.ErrNoRows)
+	needsReservation := newRun
+	if !newRun && (!r.Terminal() || !r.ResourcesReleased) {
+		var before runner.Run
+		if err := json.Unmarshal(previous, &before); err != nil {
+			return err
+		}
+		needsReservation = before.Terminal() && before.ResourcesReleased
+	}
+	if newRun && s.maxRuns > 0 {
 		var n int
 		if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs").Scan(&n); e != nil {
 			return e
 		}
 		if n >= s.maxRuns {
 			return fmt.Errorf("%w: retained run limit %d", runner.ErrCapacity, s.maxRuns)
+		}
+	}
+	if needsReservation {
+		remaining, err := s.availableRunSlots(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if remaining == 0 {
+			return fmt.Errorf("%w: database byte headroom cannot reserve newly admitted work and its initial execution", runner.ErrCapacity)
 		}
 	}
 	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data,definition) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,definition=excluded.definition", r.ID, r.ProjectID, b, definition); e != nil {

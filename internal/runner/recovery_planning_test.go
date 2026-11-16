@@ -58,6 +58,7 @@ func planningRecoveryFixture(t *testing.T) (*Core, *frontendRecheckStore, *plann
 	}
 	loadRoles(process.Steps)
 	policy := DefaultStorage()
+	policy.Database.MaxRuns = 1000
 	policy.Database.MaxRecord = 40 << 10
 	disk, err := OpenDisk(t.TempDir(), policy)
 	if err != nil {

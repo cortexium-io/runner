@@ -36,7 +36,7 @@ func collectionID(id string) bool {
 }
 
 func (c *Core) collectionIDs(intent familyCollectionIntent) ([]string, error) {
-	if !collectionID(intent.Root) || len(intent.Runs) < 1 || len(intent.Runs) > c.disk.Policy.Database.MaxRuns || intent.Runs[0].ID != intent.Root {
+	if !collectionID(intent.Root) || len(intent.Runs) < 1 || len(intent.Runs) > c.disk.Policy.RetainedRunInventoryBound() || intent.Runs[0].ID != intent.Root {
 		return nil, errors.New("invalid family collection ownership or run bound")
 	}
 	ids := make([]string, 0, len(intent.Runs))
@@ -185,11 +185,20 @@ func (c *Core) pendingFamilyCollections(store FamilyStore) error {
 		return err
 	}
 	defer dir.Close()
-	entries, err := dir.ReadDir(c.disk.Policy.Database.MaxRuns + 1)
-	if err != nil && !errors.Is(err, io.EOF) || len(entries) > c.disk.Policy.Database.MaxRuns {
-		return errors.New("family collection inventory exceeds its bound or is unreadable")
-	}
-	for _, entry := range entries {
+	seen := 0
+	for {
+		entries, err := dir.ReadDir(1)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return errors.New("family collection inventory is unreadable")
+		}
+		if len(entries) == 0 {
+			return nil
+		}
+		seen++
+		if seen > c.disk.Policy.RetainedRunInventoryBound() {
+			return errors.New("family collection inventory exceeds its storage bound")
+		}
+		entry := entries[0]
 		if store == nil {
 			return errors.New("pending family collection requires atomic family storage")
 		}
@@ -211,7 +220,6 @@ func (c *Core) pendingFamilyCollections(store FamilyStore) error {
 			return err
 		}
 	}
-	return nil
 }
 
 // collectTaskFamilies runs under Core.mu. Family membership is authenticated

@@ -150,17 +150,11 @@ func (c *Core) taskGroupAdmission(r Run, count, pendingAttempts int) error {
 	if g == nil || g.Mode != "isolated" || g.MaxParallel < 1 || c.snapshot.Instance.TaskConcurrency < 1 {
 		return errors.New("isolated tasks need explicitly configured task concurrency")
 	}
-	reserved := len(c.runs)
-	for _, other := range c.runs {
-		for _, group := range other.TaskGroups {
-			for _, child := range group.Children {
-				if _, exists := c.runs[child.RunID]; !exists {
-					reserved++
-				}
-			}
-		}
+	available, err := c.availableRunSlots()
+	if err != nil {
+		return err
 	}
-	if reserved+count > c.disk.Policy.Database.MaxRuns {
+	if count > available {
 		return errors.New("task plan needs more retained run slots; preserve history and resolve capacity before dispatch")
 	}
 	tail, err := readyTail(r, readyNext(r.Process, r.Step))

@@ -76,6 +76,7 @@ func recordWithRootBrief(t *testing.T, state []byte, brief string) []byte {
 
 func TestGeneralTaskGoalRichFourTaskAdmissionUsesCanonicalGoal(t *testing.T) {
 	p := DefaultStorage()
+	p.Database.MaxRuns = 1000
 	p.MinFree, p.Database.MaxRecord = 0, 40<<10
 	disk, err := OpenDisk(t.TempDir(), p)
 	if err != nil {

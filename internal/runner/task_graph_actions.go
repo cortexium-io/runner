@@ -41,7 +41,11 @@ func (c *Core) graphAction(r *Run, result *StepResult) error {
 	if c.workLimitsEnabled() && len(members)-1+reserved+len(action.Tasks) > policy.MaxTasks {
 		return errors.New("task proposal exceeds the frozen goal task allowance")
 	}
-	if len(c.runs)+c.graphReservations()+len(action.Tasks) > c.disk.Policy.RetainedRunCapacity() {
+	available, err := c.availableRunSlots()
+	if err != nil {
+		return err
+	}
+	if len(action.Tasks) > available {
 		return errors.New("task proposal exceeds retained run capacity")
 	}
 	depth := 0

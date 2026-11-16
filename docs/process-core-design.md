@@ -7,6 +7,54 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Project-owned verification and optional retained-run count, authorized 16 November 2026
+
+The owner's next fourteen Sudoku corrections expose the ownership error in the
+sealed checker: it mandates the old four-tool row, hint wizard and immediate
+new-puzzle flow. Correct new product behavior would fail it. Its passing totals
+also did not establish the owner's whole-product acceptance. The previous result
+and verifier remain historical evidence, not approval of the new request.
+
+The approved correction reuses the existing general role/task process, shared
+fixed-command executor, store, artifact authority and cleanup lifecycle:
+
+1. Configure a new linked project process without changing old definitions. A
+   fixed read-only baseline command authenticates the completed parent's exact
+   source and captures its binary diff and regular untracked source once, with
+   the existing Git base and hash-bound manifest. Keep source, progress and old
+   failed/passing evidence; no duplicate checkout, dependency or cache archive.
+2. Give a Runner test author a narrow project-owned verification surface and the
+   product developer its separate source surface. Official social-sharing
+   research is a scoped read-only network role. A separate fixed shared command
+   invokes the checked-in project verification script with pinned runtimes,
+   read-only source and owned scratch. UI assertions belong to the project;
+   Runner does not embed a replacement set of Sudoku-specific conditions.
+3. Retain source/test/runtime-bound reports and readable images for success and
+   failure, close owned browser/server/database resources, and preserve one stopped
+   preview executable/manifest. Reuse proof only while its relevant source, test,
+   runtime and acceptance inputs match. In particular, changing browser assertions
+   alone must not force unchanged frontend and build work to repeat.
+4. Runner owns product repair and verification repair. Independent source and
+   whole-experience reviewers reconcile every C01–C14 requirement against actual
+   current interaction/capture evidence. Reviews start after complete current
+   evidence is available; counts alone cannot establish readiness. Distinguish
+   emulated, unsupported and physical coverage explicitly.
+5. Make `storage.database.max_runs` optional, with zero meaning no configured
+   retained-run count ceiling. Keep database/record byte limits, managed/free-space
+   safeguards, concurrency, local retries and timeouts. Do not substitute another
+   fixed count, delete history or use another store. Qualify finite/disabled
+   admission, more than 128 retained records, restart, reservations and retention.
+6. Run focused model-free/runtime qualification and review before installation.
+   Preserve all live rows and receipts during the cold installation. Then admit
+   one linked fourteen-item goal. Keep the old app until the replacement is
+   accepted. The owning preview operator must preserve its desktop origin and
+   database, expose only the app on the private LAN, verify exact build identity
+   and peer reachability, and stop for Dan's inspection. No merge, production,
+   restoration or native-gate waiver is authorized.
+
+Canonical intake, original owner screenshots, preflight and subsequent receipts:
+`/Users/dan/Projects/runner-qualifications/20261116/sudoku-followup/owner-feedback-1414-1437/`.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then

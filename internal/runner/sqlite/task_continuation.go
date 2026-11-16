@@ -55,7 +55,7 @@ func (s *Store) guardTaskContinuationSave(ctx context.Context, tx *sql.Tx, r run
 }
 
 func (s *Store) SaveTaskContinuation(ctx context.Context, origin, target runner.Run, expected []runner.Run, receipt *runner.Receipt) error {
-	if len(expected) == 0 || len(expected) > s.maxRuns || expected[0].ID != origin.ID {
+	if len(expected) == 0 || len(expected) > s.runInventoryBound() || expected[0].ID != origin.ID {
 		return errors.New("task continuation needs the complete bounded original family")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

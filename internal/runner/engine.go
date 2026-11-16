@@ -264,6 +264,11 @@ func (c *Core) newRun(req StartRequest, imports map[string]Artifact) (Run, error
 			}
 		}
 	}
+	if slots, err := c.availableRunSlots(); err != nil {
+		return Run{}, err
+	} else if slots < 1 {
+		return Run{}, fmt.Errorf("%w: retained-run count or database byte headroom is reserved", ErrCapacity)
+	}
 	free, e := FreeBytes(c.disk.Root)
 	if e != nil {
 		return Run{}, e
@@ -610,19 +615,16 @@ func (c *Core) tick() time.Duration {
 			continue
 		}
 		if r.Terminal() {
-			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !r.CleanupBlocked && !c.inFlight[r.ID] && !c.holdTaskResources(r) {
-				ready := true
-				for _, old := range r.Attempts {
-					if old.State != Finished || !old.Released {
-						ready = false
+			if !r.ResourcesReleased && !r.CleanupBlocked && !c.inFlight[r.ID] && !c.holdTaskResources(r) && allAttemptsReleased(r) {
+				if _, managed := c.executor.(RunResources); !managed {
+					r.ResourcesReleased, r.CleanupError = true, ""
+					if c.persist(r, nil, nil) == nil {
+						c.Wake()
 					}
-				}
-				if ready {
-					if r.CleanupError != "" && time.Since(r.Updated) < time.Minute {
-						next = min(next, time.Minute-time.Since(r.Updated))
-					} else {
-						c.launch(id, r.ID, "release_run", Assignment{})
-					}
+				} else if r.CleanupError != "" && time.Since(r.Updated) < time.Minute {
+					next = min(next, time.Minute-time.Since(r.Updated))
+				} else {
+					c.launch(id, r.ID, "release_run", Assignment{})
 				}
 			}
 			continue

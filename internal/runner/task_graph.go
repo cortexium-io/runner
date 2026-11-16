@@ -256,6 +256,10 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	if budget == nil || budget.Spent == invalidFamilyAttempts {
 		return nil, errors.New("task context requires intact family budget ownership")
 	}
+	available, err := c.availableRunSlots()
+	if err != nil {
+		return nil, err
+	}
 	ctx := &TaskContext{
 		Followup:          Clone(root.Followup),
 		AttemptBudget:     budget,
@@ -272,7 +276,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		Revision:          g.Revisions,
 		Policy:            Clone(*root.Process.Tasks),
 		RemainingAttempts: budget.Remaining,
-		AvailableRunSlots: max(0, c.disk.Policy.RetainedRunCapacity()-len(c.runs)-c.graphReservations()),
+		AvailableRunSlots: available,
 	}
 	ctx.Results, err = c.graphResults(r)
 	if err != nil {

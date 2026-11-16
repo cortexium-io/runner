@@ -58,6 +58,16 @@ schema 13 removes hidden normalized attempt-count/position ceilings while retain
 record and database byte limits. [Installation qualification](process-core-design.md#optional-total-work-limits-authorized-16-november-2026)
 records all 115 retained runs and unchanged row identities/bytes.
 
+The separate `storage.database.max_runs` guard is also optional: zero or omission
+disables the configured retained-record count. Explicit finite values preserve
+their prior behavior. SQLite still enforces the same page/record byte limits and
+reports admission headroom from actual used and reusable pages. New or unsettled
+work reserves state/definition/initial-attempt capacity; settled history costs its
+observed bytes. The Core also subtracts admitted children without materialized
+rows. This replaces the old assumption that every historical run permanently
+costs three maximum-sized records. Retention streams bounded intent records and
+uses a physical inventory bound independently of optional admission policy.
+
 Normal Start/Run also accepts an exact-revision completed-parent follow-up. It
 admits a new configured goal in the same project/workspace, retaining immutable
 parent lineage and selected input-artifact authority rather than reopening the
@@ -66,6 +76,17 @@ parent family in the insertion transaction; schema 14 indexes root/follow-up
 references and protects every parent-family member from premature collection.
 Lost start acknowledgements recover the same pristine durable root through its
 receipt. Context, inspect and compact results expose the parent link.
+
+The next configured Sudoku correction process moves UI assertions out of the
+sealed Runner checker. A narrowly scoped project test author owns checked-in
+verification code; a separate existing `command/shared` role executes it with
+read-only source, pinned runtimes and owned scratch. Runner continues to own
+dispatch, artifacts, recovery and resource settlement. A one-time authenticated
+baseline preserves the parent's binary source diff and untracked source without
+another checkout. Independent source review inspects both product and test code;
+the experience reviewer judges the actual current images against each owner
+requirement. This is project policy, not a second scheduler or a new assertion
+framework. Historical checker counts do not define the new UI's acceptance.
 
 Shared fixed commands can select `{goal}` as one whole argv/environment value.
 The adapter retains only the requested authoritative goal, stages it in an owned

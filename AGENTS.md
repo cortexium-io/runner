@@ -2,6 +2,17 @@
 
 ## Current authority and scope
 
+On 16 November Dan explicitly authorized the bounded correction preflight:
+configure project-owned verification through the existing qualified shared-command
+executor and make the retained-run count guard optional while keeping byte
+safeguards. Qualify and install this maintenance, then run all fourteen numbered
+Sudoku corrections through a linked process and stop at a verified phone-accessible
+preview for his inspection. Preserve the canonical source, progress, history and
+evidence. No Runner rewrite, external product implementation, merge, production
+deployment, restoration or release-gate waiver is authorized. The current plan in
+`docs/process-core-design.md` owns the maintenance; bounded maintenance agents are
+authorized and product implementation/checks/review remain inside Runner.
+
 On 16 November Dan requested seven Sudoku follow-up corrections: working hints;
 remove Repeated entry from Options; remove More actions and place compact Check/
 Restart above the board at the right; retain lime on the disabled exhausted locked

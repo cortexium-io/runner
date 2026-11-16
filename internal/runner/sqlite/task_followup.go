@@ -35,7 +35,7 @@ func guardTaskFollowupSave(r runner.Run, previous []byte, authorized bool) error
 }
 
 func (s *Store) SaveTaskFollowup(ctx context.Context, target runner.Run, expected []runner.Run, receipt *runner.Receipt) error {
-	if target.Followup == nil || len(expected) == 0 || len(expected) > s.maxRuns {
+	if target.Followup == nil || len(expected) == 0 || len(expected) > s.runInventoryBound() {
 		return errors.New("follow-up requires a complete retained parent family")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

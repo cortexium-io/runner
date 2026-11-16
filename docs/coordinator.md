@@ -48,6 +48,13 @@ provenance and settlement always apply. Historical failures are not restarted by
 changing the policy. The `recover-corrections --within-budget` mode needs a finite
 enforced aggregate allowance; the ordinary bounded local grant remains available.
 
+`storage.database.max_runs` is a separate optional retained-record guard; zero or
+omission disables its count ceiling. This does not disable database/record byte,
+managed-space or free-space safeguards. Available run slots describe current
+storage headroom, including reservations for admitted unsettled work, rather than
+a total-work allowance. Preserve history when actual storage is full and resolve
+that resource constraint through the owning operator.
+
 ## Mobile evidence intake and native gate
 
 The candidate-evidence and independent image-review version of
