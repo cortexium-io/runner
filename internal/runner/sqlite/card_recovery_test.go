@@ -149,7 +149,7 @@ func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 		t.Fatal("one-use receipt lost", got, e)
 	}
 	var version int
-	if e = s.db.QueryRow("PRAGMA user_version").Scan(&version); e != nil || version != 14 {
+	if e = s.db.QueryRow("PRAGMA user_version").Scan(&version); e != nil || version != 15 {
 		t.Fatal("schema changed", version, e)
 	}
 	// Keep an owned closed fixture only when explicitly requested for old-reader

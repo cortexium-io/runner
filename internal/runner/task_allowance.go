@@ -13,8 +13,9 @@ import (
 	"unicode/utf8"
 )
 
-// TaskAllowanceGrant amends only the root's aggregate ceiling. Historical
-// executions, continuation debits and individual role-visit limits are retained.
+// TaskAllowanceGrant retains the existing root owner-amendment audit chain.
+// Legacy grants increase the ceiling; role-only amendments retain it unchanged.
+// Historical executions, continuation debits and role-visit limits are retained.
 type TaskAllowanceGrant struct {
 	PreviousDefinition *CardRecoveryArtifact   `json:"previous_definition,omitempty"`
 	InstructionChanges []TaskInstructionChange `json:"instruction_changes,omitempty"`
@@ -119,7 +120,7 @@ func taskAllowanceRecord(r Run) error {
 	spent := 0
 	var grantedAt time.Time
 	for _, grant := range g.AllowanceGrants {
-		if grant.RequestID == "" || len(grant.RequestID) > 128 || seen[grant.RequestID] || grant.PreviousLimit != limit || limit < 1 || grant.Limit <= limit || grant.Limit > MaxGeneralTaskAttempts || grant.Spent < spent || strings.TrimSpace(grant.Reason) == "" || len(grant.Reason) > 2048 || grant.GrantedAt.IsZero() || grant.GrantedAt.Before(grantedAt) {
+		if grant.RequestID == "" || len(grant.RequestID) > 128 || seen[grant.RequestID] || grant.PreviousLimit != limit || limit < 1 || grant.Limit < limit || grant.Limit == limit && !roleOnlyAmendment(grant) || grant.Limit > MaxGeneralTaskAttempts || grant.Spent < spent || strings.TrimSpace(grant.Reason) == "" || len(grant.Reason) > 2048 || grant.GrantedAt.IsZero() || grant.GrantedAt.Before(grantedAt) {
 			return errors.New("invalid root goal allowance grant chain")
 		}
 		amended := len(grant.InstructionChanges) != 0 || grant.MaxTasks != 0
@@ -162,9 +163,9 @@ func taskAllowanceRecord(r Run) error {
 	return nil
 }
 
-// ValidateTaskAllowanceChange authenticates an append against the ordinary
-// retry receipt in the same transaction. A save without that owner operation
-// cannot mint capacity, rewrite a grant or alter work while granting capacity.
+// ValidateTaskAllowanceChange authenticates one owner-audit append against its
+// retry or role-amendment receipt in the same transaction. An ordinary save
+// cannot change the frozen definition, mint capacity or rewrite prior audits.
 func ValidateTaskAllowanceChange(before, after Run, receipt *Receipt, family []Run) error {
 	var oldGrants, newGrants []TaskAllowanceGrant
 	if before.TaskGraph != nil {
@@ -178,6 +179,9 @@ func ValidateTaskAllowanceChange(before, after Run, receipt *Receipt, family []R
 			return errors.New("frozen task definition can change only with an audited owner grant")
 		}
 		return nil
+	}
+	if receipt != nil && receipt.Kind == taskRoleAmendmentReceipt {
+		return validateTaskRoleAmendment(before, after, *receipt, family)
 	}
 	bad := errors.New("goal allowance change needs one append-only root owner retry grant and unchanged work")
 	if before.TaskGraph == nil || after.TaskGraph == nil || before.ID != after.ID || before.ID != before.TaskGraph.RootRunID || before.TaskGraph.ParentRunID != "" || len(newGrants) != len(oldGrants)+1 || len(oldGrants) != 0 && !reflect.DeepEqual(oldGrants, newGrants[:len(oldGrants)]) || receipt == nil || receipt.Kind != "retry" || receipt.RunID != before.ID {
@@ -327,7 +331,16 @@ func (c *Core) readTaskDefinitionProofs(r Run) error {
 		}
 		receipt, err := c.store.FindReceipt(c.ctx, grant.RequestID)
 		var req RetryRequest
-		if err != nil || receipt.Kind != "retry" || receipt.RunID != r.ID || json.Unmarshal(receipt.Args, &req) != nil || req.RequestID != grant.RequestID || req.RunID != r.ID || req.Revision < 1 || req.ExtraAttempts != grant.Limit-grant.PreviousLimit || req.WithinBudget || req.CleanupOnly {
+		if err != nil || receipt.RunID != r.ID {
+			return errors.New("task definition amendment receipt differs or is missing")
+		}
+		if roleOnlyAmendment(grant) {
+			roleRequest, err := taskRoleAmendmentRequest(receipt)
+			if err != nil || roleRequest.RequestID != grant.RequestID || roleRequest.Reason != grant.Reason {
+				return errors.New("task role amendment receipt differs or is missing")
+			}
+			req.RoleInstructions = roleRequest.RoleInstructions
+		} else if receipt.Kind != "retry" || json.Unmarshal(receipt.Args, &req) != nil || req.RequestID != grant.RequestID || req.RunID != r.ID || req.Revision < 1 || req.ExtraAttempts != grant.Limit-grant.PreviousLimit || req.WithinBudget || req.CleanupOnly {
 			return errors.New("task definition amendment receipt differs or is missing")
 		}
 		prior := Run{

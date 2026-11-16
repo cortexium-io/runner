@@ -164,6 +164,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, err := c.InterveneTask(in)
 		return summary(r), err
 	})
+	add(s, "runner_amend_roles", "Owner-only instruction amendment on an exact paused, settled general root. Preserves the prior definition as authenticated canonical proof and changes only future native instruction text. Retains historical children/attempts, source, evidence, models, profiles, permissions, spending, total-work policy and local retries. Root source resources remain retained. Grants no allowance or approval and leaves dispatch paused until normal explicit resume. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.TaskRoleAmendmentRequest) (any, error) {
+		r, err := c.AmendTaskRoles(in)
+		return summary(r), err
+	})
 	add(s, "runner_recover_tasks", "Owner-only same-generation recovery after a reported runtime maintenance repair. Requires an exact failed owning goal revision and current failed child task IDs, with the whole family settled and released. Atomically reopens those failed visits and only their never-executed dependency-failed closure, then resumes ordinary parent evaluation. Preserves accepted work, all history, task IDs/specs, roles, profiles, revision policy and aggregate attempt ceiling. Grants no allowance or approval. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverTasksRequest) (any, error) {
 		r, err := c.RecoverTasks(in)
 		return compactResult(r, time.Now()), err

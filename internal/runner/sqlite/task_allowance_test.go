@@ -16,6 +16,7 @@ func storedTaskAllowance(t *testing.T, roles ...runner.Role) (*Store, runner.Run
 	s, origin, root, family, continuation := storedTaskContinuation(t)
 	root.Process.MaxAttemptsPerStep = 4
 	if len(roles) != 0 {
+		root.Process.Steps = []runner.Step{{ID: "lead", Role: roles[0].ID}}
 		root.Roles = map[string]runner.Role{}
 		for _, role := range roles {
 			root.Roles[role.ID] = role

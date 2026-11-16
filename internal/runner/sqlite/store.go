@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 14 {
+	if version < 0 || version > 15 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -240,6 +240,14 @@ PRAGMA user_version=13; COMMIT;`); e != nil {
 CREATE INDEX followup_parent ON runs(json_extract(CAST(data AS TEXT),'$.followup.run_id'));
 CREATE INDEX task_graph_root ON runs(json_extract(CAST(data AS TEXT),'$.task_graph.root_run_id'));
 PRAGMA user_version=14; COMMIT;`); e != nil {
+			return nil, e
+		}
+		version = 14
+	}
+	if version == 14 {
+		// Role-only amendments preserve the attempt allowance and a paused
+		// root's source ownership. Older writers cannot interpret this audit.
+		if _, e = db.Exec("PRAGMA user_version=15"); e != nil {
 			return nil, e
 		}
 	}

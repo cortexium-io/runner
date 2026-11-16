@@ -43,7 +43,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunNativeWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|recover-tasks|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|amend-roles|recover-tasks|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -139,10 +139,18 @@ func run(ctx context.Context, args []string) error {
 	if command != "recover-tasks" && *taskIDs != "" {
 		return errors.New("--task-ids requires recover-tasks")
 	}
-	if *maintenanceReason != "" && command != "recover-tasks" && command != "retry" {
-		return errors.New("--reason requires recover-tasks or retry")
+	if *maintenanceReason != "" && command != "recover-tasks" && command != "retry" && command != "amend-roles" {
+		return errors.New("--reason requires recover-tasks, retry or amend-roles")
 	}
-	if (*roleInstructionsFile != "" || *maxTasks != 0) && (command != "retry" || *runID == "" || *revision < 1 || *extra <= 0 || *withinBudget || *cleanupOnly) {
+	if command == "amend-roles" {
+		allowed := map[string]bool{"data": true, "endpoint": true, "run": true, "revision": true, "request-id": true, "reason": true, "role-instructions-file": true}
+		bad := false
+		fs.Visit(func(f *flag.Flag) { bad = bad || !allowed[f.Name] })
+		if bad || *runID == "" || *revision < 1 || *maintenanceReason == "" || *roleInstructionsFile == "" {
+			return errors.New("amend-roles requires --run, exact --revision, --reason and --role-instructions-file; no profile, access, allowance or dispatch override")
+		}
+	}
+	if command != "amend-roles" && (*roleInstructionsFile != "" || *maxTasks != 0) && (command != "retry" || *runID == "" || *revision < 1 || *extra <= 0 || *withinBudget || *cleanupOnly) {
 		return errors.New("role instruction and task allowance amendments require retry with exact --run/--revision and positive --extra-attempts, without --within-budget or --cleanup-only")
 	}
 	var roleInstructions map[string]string
@@ -272,6 +280,19 @@ func run(ctx context.Context, args []string) error {
 	var method string
 	var a any
 	switch command {
+	case "amend-roles":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_amend_roles"
+		a = runner.TaskRoleAmendmentRequest{
+			RequestID:        *requestID,
+			RunID:            *runID,
+			Revision:         *revision,
+			Reason:           *maintenanceReason,
+			RoleInstructions: roleInstructions,
+		}
 	case "recover-tasks":
 		var ids []string
 		if err := json.Unmarshal([]byte(*taskIDs), &ids); err != nil || len(ids) == 0 {

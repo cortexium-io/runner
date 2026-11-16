@@ -167,6 +167,48 @@ This is not request-specific ad acceptance, native model image judgment or Linux
 runtime qualification. Actual product assertions and observations remain Runner
 work, and the unqualified native Safari gate remains closed.
 
+### Role amendment independent of allowance
+
+The live fourteen-item qualification exposed a planning/ownership error: the
+developer was restricted to frontend files, while C08 needs the existing qualified
+SDK7 profiles connected to the Next catalogue. The request already requires those
+genuine existing size choices; no new variant, algorithm, migration or release is
+authorised by this correction. The current collector's `admit-followup` path binds
+the complete source inventory and does not require changing the legacy frontend
+delta gate.
+
+The existing role-instruction amendment is coupled to a positive work allowance
+grant and terminal resource release. With work caps disabled, using a dormant
+grant to amend ownership would preserve the wrong contract. Complete the already
+authorised scoped intervention/optional-limit work through a formal role-only
+amendment on a paused, quiescent general root. Reuse the existing definition-proof,
+receipt and transaction chain; keep every old role/child/attempt/source/evidence
+and budget fact intact. Amend only future native instruction text, authenticate
+the unchanged limits with a distinct role-amendment receipt, and retain the paused
+state until normal resume. Reject active, unknown or unreleased attempt work,
+pending reservations, stale/foreign/forged requests and profile/model/access changes.
+
+Qualify rollback, uncertain commit/replay, restart/proof validation, legacy grant
+compatibility, old-child snapshots and future-child delivery, finite/disabled caps
+and unchanged local retries. Installation must preserve the same live root/store;
+no unlinked run, fabricated allowance, directive overriding frozen contracts or
+outside product repair. Normal pause has stopped new root dispatch while the
+current fixed check settles; the existing preview/database remain unchanged.
+
+The correction is implemented as `Core.AmendTaskRoles`, owner MCP
+`runner_amend_roles` and CLI `amend-roles`. The historical owner-proof chain keeps
+the dormant limit unchanged and uses a distinct authenticated role-only receipt.
+SQLite format 15 rejects older readers; it preserves all existing table rows.
+Lost commit acknowledgement and a transient reconciliation read are covered by
+same-process replay qualification. Focused Core/SQLite/control/CLI race and vet
+checks, the complete execution workflow gate (389.511 seconds), and independent
+review pass. The four instruction contracts now agree on narrowly required
+non-generated existing-profile integration, focused Go proof and full backend
+source binding; profiles, models, permissions and all other roles are unchanged.
+The actual future configuration loads within the existing byte limits. This is
+maintenance qualification; installation and the same-root application/resume
+remain separate recorded actions, and no product acceptance is implied.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then

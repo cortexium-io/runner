@@ -102,6 +102,12 @@ func TestMCPControlRoundTrip(t *testing.T) {
 	}); err == nil {
 		t.Fatal("intervention wire accepted an absent task")
 	}
+	if _, err = Call(ctx, session, "runner_amend_roles", runner.TaskRoleAmendmentRequest{
+		RequestID: "wire-role-amendment", RunID: "missing", Revision: 1,
+		Reason: "Owner amended future role scope", RoleInstructions: map[string]string{"developer": "Respect the current scoped goal"},
+	}); err == nil {
+		t.Fatal("role amendment wire accepted an absent task")
+	}
 	call := func(name string, args, out any) {
 		t.Helper()
 		b, err := Call(ctx, session, name, args)
