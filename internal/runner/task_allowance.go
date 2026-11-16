@@ -119,7 +119,7 @@ func taskAllowanceRecord(r Run) error {
 	spent := 0
 	var grantedAt time.Time
 	for _, grant := range g.AllowanceGrants {
-		if grant.RequestID == "" || len(grant.RequestID) > 128 || seen[grant.RequestID] || grant.PreviousLimit != limit || limit < 1 || grant.Limit <= limit || grant.Limit > MaxGeneralTaskAttempts || grant.Spent < spent || grant.Spent > limit || strings.TrimSpace(grant.Reason) == "" || len(grant.Reason) > 2048 || grant.GrantedAt.IsZero() || grant.GrantedAt.Before(grantedAt) {
+		if grant.RequestID == "" || len(grant.RequestID) > 128 || seen[grant.RequestID] || grant.PreviousLimit != limit || limit < 1 || grant.Limit <= limit || grant.Limit > MaxGeneralTaskAttempts || grant.Spent < spent || strings.TrimSpace(grant.Reason) == "" || len(grant.Reason) > 2048 || grant.GrantedAt.IsZero() || grant.GrantedAt.Before(grantedAt) {
 			return errors.New("invalid root goal allowance grant chain")
 		}
 		amended := len(grant.InstructionChanges) != 0 || grant.MaxTasks != 0
@@ -245,8 +245,11 @@ func ValidateTaskAllowanceChange(before, after Run, receipt *Receipt, family []R
 	return taskAllowanceRecord(after)
 }
 
-func (c *Core) graphAttemptBudget(r Run) *TaskAttemptBudget {
-	root, err := c.graphRoot(r)
+func (c *Core) familyAttemptBudget(r Run) *TaskAttemptBudget {
+	root, err := c.taskRoot(r)
+	if r.TaskGraph != nil {
+		root, err = c.graphRoot(r)
+	}
 	if err != nil {
 		return nil
 	}
@@ -256,7 +259,10 @@ func (c *Core) graphAttemptBudget(r Run) *TaskAttemptBudget {
 		Spent:     spent,
 		Remaining: max(0, root.Process.MaxAttempts-spent),
 	}
-	if root.TaskGraph.Lineage != nil {
+	if !c.workLimitsEnabled() {
+		budget.Unlimited, budget.Limit, budget.Remaining = true, 0, -1
+	}
+	if root.TaskGraph != nil && root.TaskGraph.Lineage != nil {
 		budget.PriorAttempts = root.TaskGraph.Lineage.PriorAttempts
 	}
 	return budget

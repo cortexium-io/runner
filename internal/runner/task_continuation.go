@@ -55,10 +55,11 @@ type TaskContinuationAudit struct {
 }
 
 type TaskAttemptBudget struct {
-	Limit         int `json:"limit"`
-	PriorAttempts int `json:"prior_attempts"`
-	Spent         int `json:"spent"`
-	Remaining     int `json:"remaining"`
+	Unlimited     bool `json:"unlimited,omitempty"`
+	Limit         int  `json:"limit"`
+	PriorAttempts int  `json:"prior_attempts"`
+	Spent         int  `json:"spent"`
+	Remaining     int  `json:"remaining"`
 }
 
 type TaskContinuationStore interface {
@@ -180,7 +181,7 @@ func (c *Core) planTaskContinuation(req ContinueTaskRequest) (taskContinuationPl
 		}
 	}
 	used := c.familyAttempts(r)
-	if used <= 0 || used >= r.Process.MaxAttempts {
+	if used <= 0 || used == invalidFamilyAttempts || c.workLimitsEnabled() && used >= r.Process.MaxAttempts {
 		return plan, errors.New("continuation has no authenticated remaining original family allowance")
 	}
 	source, check, err := TaskContinuationEvidence(r, req.SourceAttemptID, req.CheckAttemptID)
@@ -345,7 +346,7 @@ func taskContinuationRecord(r Run) error {
 	}
 	if graph := r.TaskGraph; graph != nil && graph.Lineage != nil {
 		lineage := graph.Lineage
-		if graph.RootRunID != r.ID || graph.ParentRunID != "" || lineage.OriginRunID == "" || lineage.OriginRunID == r.ID || lineage.OriginProjectID == "" || lineage.OriginRevision < 1 || lineage.PriorAttempts < 1 || lineage.PriorAttempts >= lineage.MaxAttempts || lineage.Source.WorkDir != "" || !frontendRecheckHex(lineage.PatchSHA256, 64) || !frontendRecheckHex(lineage.CheckSHA256, 64) {
+		if graph.RootRunID != r.ID || graph.ParentRunID != "" || lineage.OriginRunID == "" || lineage.OriginRunID == r.ID || lineage.OriginProjectID == "" || lineage.OriginRevision < 1 || lineage.PriorAttempts < 1 || lineage.MaxAttempts < 1 || lineage.Source.WorkDir != "" || !frontendRecheckHex(lineage.PatchSHA256, 64) || !frontendRecheckHex(lineage.CheckSHA256, 64) {
 			return errors.New("retained task lineage differs from its general-task root")
 		}
 	}
@@ -416,7 +417,7 @@ func ValidateTaskContinuation(origin, target Run, family []Run, receipt *Receipt
 		view.runs[member.ID] = member
 	}
 	matched, err := view.legacyContinuationFamily(prior)
-	if err != nil || len(matched) != len(family) || view.familyAttempts(prior) != lineage.PriorAttempts || lineage.PriorAttempts <= 0 || lineage.PriorAttempts >= lineage.MaxAttempts {
+	if err != nil || len(matched) != len(family) || view.familyAttempts(prior) != lineage.PriorAttempts || lineage.PriorAttempts <= 0 {
 		return bad
 	}
 	source, check, err := TaskContinuationEvidence(prior, lineage.Source.AttemptID, lineage.CheckAttemptID)

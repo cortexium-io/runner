@@ -127,7 +127,7 @@ func taskContinuationFixture(t *testing.T) (*Core, *continuationStore, *continua
 		ID: "preview", Workspace: t.TempDir(), DefaultProcess: process.ID,
 		Processes: map[string]Process{process.ID: process}, Roles: map[string]Role{role.ID: role, reader.ID: reader}, Profiles: map[string]string{},
 	}
-	c.snapshot = Snapshot{Projects: map[string]Project{project.ID: project}}
+	c.snapshot = Snapshot{Instance: Instance{EnforceWorkLimits: true}, Projects: map[string]Project{project.ID: project}}
 	view, err := c.Get(r.ID)
 	if err != nil {
 		t.Fatal(err)

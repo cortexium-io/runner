@@ -117,6 +117,7 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 		}
 	}
 	request := struct {
+		WorkPolicy      string            `json:"work_policy,omitempty"`
 		Task            string            `json:"task,omitempty"`
 		TaskRef         string            `json:"task_ref,omitempty"`
 		Inputs          map[string]any    `json:"inputs"`
@@ -127,7 +128,21 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 		ScratchDir      string            `json:"scratch_dir"`
 		Evidence        map[string]string `json:"evidence_files,omitempty"`
 		Instructions    string            `json:"instructions"`
-	}{task, taskRef, inputs, inputRefs, context, p.MaxOutput, a.OutputDir, scratch, harnessArtifactFiles(a), instructions + "\n" + p.Instructions + "\nWrite retained files into output_dir; artifact output paths are relative to output_dir. Use scratch_dir for temporary checks. Source access and read-only verification are enforced separately from these two writable roots."}
+	}{
+		Task:            task,
+		TaskRef:         taskRef,
+		Inputs:          inputs,
+		InputReferences: inputRefs,
+		Context:         context,
+		MaxOutput:       p.MaxOutput,
+		OutputDir:       a.OutputDir,
+		ScratchDir:      scratch,
+		Evidence:        harnessArtifactFiles(a),
+		Instructions:    instructions + "\n" + p.Instructions + "\nWrite retained files into output_dir; artifact output paths are relative to output_dir. Use scratch_dir for temporary checks. Source access and read-only verification are enforced separately from these two writable roots.",
+	}
+	if a.UnlimitedWork {
+		request.WorkPolicy = unlimitedWorkPolicy
+	}
 	props := map[string]any{}
 	for name, kind := range a.OutputTypes {
 		if name == "patch" && p.Access == "workspace-write" && a.TaskContext == nil {

@@ -73,6 +73,9 @@ func TestGeneralTasksFailedSteerCompletesSameGoalWithinExactRemainingBudget(t *t
 	}
 	done := await(t, r.core, root.ID, func(r runner.Run) bool { return r.Status == "Completed" && r.ResourcesReleased })
 	afterChild, _ := r.core.Get(oldChild.ID)
+	// The projected family budget advances when siblings/parents execute; it
+	// is not part of this child's frozen work or persisted execution history.
+	oldChild.TaskBudget, afterChild.TaskBudget = nil, nil
 	mu.Lock()
 	defer mu.Unlock()
 	if failure != "" || runner.Summarize(done, time.Now()).Attempts != 6 || done.Process.MaxAttempts != 6 || len(done.TaskGraph.Children) != 2 || calls["original-check"] != 1 || calls["recheck"] != 1 || !reflect.DeepEqual(oldChild, afterChild) {

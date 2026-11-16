@@ -7,6 +7,37 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Optional total-work limits, authorized 16 November 2026
+
+The owner explicitly chose to disable both aggregate execution and total
+child-task ceilings across all configured projects, retaining local retry limits,
+concurrency, execution timeouts and disk safeguards. Use one instance policy,
+`enforce_work_limits`, default false. It applies to existing and future runs;
+frozen finite process fields, grants and original spending remain historical
+authority without constraining execution while enforcement is off. An explicit
+true opts back into those ceilings. A policy change requires a restart so a live
+reload cannot invalidate previously admitted completion capacity.
+
+1. Skip only aggregate-cap arithmetic and total-child-count admission when
+   disabled. Always validate ownership, dependencies, profiles, local retries,
+   routes, permissions and resource capacity. Retain the existing scheduler,
+   operational store, accounting and configured recovery boundaries.
+2. Expose effective unlimited attempt/task state in task context and results;
+   `remaining = -1` means unlimited, never exhausted. Native requests carry the
+   current policy separately from historical role prose, without duplicating the
+   goal or changing immutable instructions. Do not claim local retry counters
+   prevent a planner repeatedly creating successful new tasks.
+3. Remove the normalized store's hidden 128/32768 execution-count bounds and
+   physical row-position ceiling. Schema 13 excludes old readers; retain every
+   existing state, definition, attempt, receipt and artifact row. Database and
+   record byte limits continue to protect storage.
+4. Qualify disabled and explicitly enabled behavior, unchanged local retry
+   stopping, context/provenance, migration/restart and existing workflow contracts.
+   Install only after an exact private checkpoint comparison and settled service
+   inspection. Make disabled policy explicit in the installed instance and new
+   examples. Verify the other hosts' actual runtimes rather than migrating them
+   unnecessarily. Preserve the accepted Sudoku preview and report its status.
+
 ### Live Sudoku workflow amendment, authorized 16 November 2026
 
 Continue the same retained root from 69 spent attempts. The owner explicitly

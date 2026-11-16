@@ -14,6 +14,7 @@ import (
 )
 
 type nativePayloadRequest struct {
+	WorkPolicy            string         `json:"work_policy,omitempty"`
 	Task                  string         `json:"task"`
 	Inputs                map[string]any `json:"inputs"`
 	DeadlineUTC           string         `json:"deadline_utc,omitempty"`
@@ -22,6 +23,10 @@ type nativePayloadRequest struct {
 	InputFileKeys         []string       `json:"input_file_keys,omitempty"`
 	InputFileInstructions string         `json:"input_file_instructions,omitempty"`
 }
+
+// The instance policy is authoritative over historical finite-budget prose.
+// It changes neither the goal nor the role's tool and permission contract.
+const unlimitedWorkPolicy = "Aggregate attempts and total child-task count are unlimited. Historical numeric ceilings and budget prose are retained accounting, not active limits. Continue useful work without seeking an aggregate allowance increase. Local retries, permissions, concurrency, execution timeouts and storage safeguards still apply."
 
 type nativeInputFile struct {
 	Path     string `json:"runner_input_file"`

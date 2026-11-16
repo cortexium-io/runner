@@ -111,6 +111,29 @@ func TestTaskRecoveryRearmsOnlySameGenerationWithin42Of64(t *testing.T) {
 	}
 }
 
+func TestTaskRecoveryUnlimitedPreservesSpendingBeyondDormantCeiling(t *testing.T) {
+	c, _, req := failedTaskRecoveryFixture(t)
+	c.snapshot.Instance.EnforceWorkLimits = false
+	r := c.runs[req.RunID]
+	for i := range 30 {
+		r.Attempts = append(r.Attempts, Attempt{ID: fmt.Sprintf("unlimited_spent_%d", i), State: Finished, Released: true})
+	}
+	c.runs[r.ID] = r
+	req.Revision = c.outputRun(r).Revision
+	got, err := c.RecoverTasks(req)
+	if err != nil || got.TaskBudget == nil || !got.TaskBudget.Unlimited || got.TaskBudget.Spent != 72 || got.Process.MaxAttempts != 64 {
+		t.Fatal("unlimited recovery lost history or kept its dormant cap active", got.TaskBudget, err)
+	}
+	state, definition, err := MarshalRunRecord(c.runs[r.ID])
+	if err != nil {
+		t.Fatal("recovery beyond the dormant limit could not persist", err)
+	}
+	loaded, err := UnmarshalRunRecord(state, definition)
+	if err != nil || loaded.TaskGraph.Recoveries[0].Spent != 72 {
+		t.Fatal("recovery audit lost its actual debit", err)
+	}
+}
+
 func TestTaskRecoveryRefusesUnsafeOrUnownedRecoveryWithoutEffects(t *testing.T) {
 	for _, fault := range []string{"active", "unknown", "cleanup", "unreleased", "stale", "completed-parent", "cancelled", "retired", "budget", "zero-selected", "duplicate", "store-failure"} {
 		t.Run(fault, func(t *testing.T) {

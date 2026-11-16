@@ -73,9 +73,15 @@ restoration remain separate saved owner decisions.
 - Ordered steps and named outcome routes with typed inputs/outputs, retained
   artifacts, bounded correction/benchmark repetition, execution retries,
   saved decisions, profile escalation, cancellation and restart reconciliation.
-- Legacy fixed task templates expanded from bounded dependency-aware collections.
-  Planned groups support up to eight cards and two isolated card actors, sharing
-  one 64-attempt family allowance. Older serial definitions retain their limits.
+- Legacy fixed task templates expand dependency-aware collections. Their former
+  eight-card and 64-expanded-step ceilings apply only when work limits are enabled.
+  Isolated actors retain their separately configured concurrency and write scopes.
+- Aggregate attempt and total child-task ceilings are optional instance policy.
+  `enforce_work_limits: false` (the default) disables both for all projects and
+  retained runs without discarding history or changing frozen definitions.
+  `true` enables their configured finite values. Local retries, route repetition,
+  concurrency, per-execution timeouts, storage checks and owner decisions remain
+  enforced. Disabled limits do not automatically retry failed or completed work.
 - One instance owner, concurrent independent runs, bounded records/history/logs,
   controlled storage admission, retained-output references and repeatable cleanup.
 - Regular source files with literal source/capture ownership, including the

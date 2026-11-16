@@ -247,12 +247,15 @@ func (c *Core) graphResults(r Run) ([]RoleTaskResult, error) {
 }
 
 func (c *Core) graphContext(r Run) (*TaskContext, error) {
-	root, err := c.graphRoot(r)
+	root, _, _, err := c.graphFamily(r)
 	if err != nil {
 		return nil, err
 	}
 	g := r.TaskGraph
-	budget := c.graphAttemptBudget(r)
+	budget := c.familyAttemptBudget(r)
+	if budget == nil || budget.Spent == invalidFamilyAttempts {
+		return nil, errors.New("task context requires intact family budget ownership")
+	}
 	ctx := &TaskContext{
 		AttemptBudget:     budget,
 		Lineage:           Clone(root.TaskGraph.Lineage),
@@ -300,7 +303,11 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	}
 	ctx.Directive = strings.Join(directives, "\n\n")
 	if _, members, reserved, err := c.graphFamily(r); err == nil {
-		ctx.RemainingTasks = max(0, root.Process.Tasks.MaxTasks-len(members)+1-reserved)
+		if c.workLimitsEnabled() {
+			ctx.RemainingTasks = max(0, root.Process.Tasks.MaxTasks-len(members)+1-reserved)
+		} else {
+			ctx.UnlimitedTasks, ctx.RemainingTasks = true, -1
+		}
 	}
 	if len(r.Attempts) > 0 {
 		last := r.Attempts[len(r.Attempts)-1]

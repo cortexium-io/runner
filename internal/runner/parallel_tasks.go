@@ -54,7 +54,7 @@ func isolatedStep(r Run) bool {
 	return r.Step >= 0 && r.Step < len(r.Process.Steps) && r.Process.Steps[r.Step].ForEach != nil && r.Process.Steps[r.Step].ForEach.Mode == "isolated"
 }
 
-func decodeTaskItems(r Run, g *TaskGroup) ([]TaskItem, error) {
+func decodeTaskItems(r Run, g *TaskGroup, enforce bool) ([]TaskItem, error) {
 	values, err := bindings(r, map[string]Binding{"items": g.Items})
 	if err != nil {
 		return nil, err
@@ -67,8 +67,11 @@ func decodeTaskItems(r Run, g *TaskGroup) ([]TaskItem, error) {
 	var items []TaskItem
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if err := d.Decode(&items); err != nil || d.Decode(new(any)) != io.EOF || len(items) < 1 || len(items) > 8 {
-		return nil, errors.New("task collection must contain 1–8 declared items")
+	if err := d.Decode(&items); err != nil || d.Decode(new(any)) != io.EOF || len(items) < 1 {
+		return nil, errors.New("task collection must contain declared items")
+	}
+	if enforce && len(items) > 8 {
+		return nil, errors.New("task collection exceeds eight declared items")
 	}
 	byID := map[string]TaskItem{}
 	allPaths := map[string]bool{}
@@ -381,7 +384,7 @@ func (c *Core) driveTaskGroup(r Run) bool {
 		if r.Status != "Queued" || !allAttemptsReleased(r) {
 			return true
 		}
-		items, err := decodeTaskItems(r, step.ForEach)
+		items, err := decodeTaskItems(r, step.ForEach, c.workLimitsEnabled())
 		if err == nil && r.Step > 0 && r.RouteUses[r.Process.Steps[r.Step-1].ID+"/"+planningRecovery] != 0 && len(items) != 1 {
 			err = errors.New("recovered planning requires one bounded observation card before measurement")
 		}

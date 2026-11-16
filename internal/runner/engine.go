@@ -52,6 +52,7 @@ type Summary struct {
 	Progress      Progress           `json:"progress"`
 }
 type Status struct {
+	EnforceWorkLimits   bool      `json:"enforce_work_limits"`
 	MaxActiveAttempts   int       `json:"max_active_attempts"`
 	ActiveAttempts      int       `json:"active_attempts"`
 	Runs                []Summary `json:"runs"`
@@ -310,6 +311,7 @@ func (c *Core) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := Status{
+		EnforceWorkLimits:   c.snapshot.Instance.EnforceWorkLimits,
 		MaxActiveAttempts:   c.snapshot.Instance.MaxActiveAttempts,
 		ActiveAttempts:      c.activeAttempts(),
 		ConfigError:         c.configError,
@@ -459,7 +461,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	if (r.Status != "Waiting" && r.Status != "Failed") || r.Active() {
 		return Run{}, errors.New("retry needs settled failed/waiting work; unknown execution must be reconciled first")
 	}
-	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || !req.WithinBudget && r.Process.MaxAttempts+req.ExtraAttempts > 128 {
+	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || c.workLimitsEnabled() && !req.WithinBudget && req.ExtraAttempts > 128-r.Process.MaxAttempts {
 		return Run{}, errors.New("extra_attempts exceeds the per-operation or run allowance")
 	}
 	if req.Profile != "" {
@@ -470,10 +472,10 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		r.NextProfile = req.Profile
 	}
 	total := r.Process.MaxAttempts
-	if !req.WithinBudget {
+	if c.workLimitsEnabled() && !req.WithinBudget {
 		total += req.ExtraAttempts
 	}
-	if len(r.Attempts) >= total {
+	if c.workLimitsEnabled() && len(r.Attempts) >= total {
 		return Run{}, errors.New("attempt allowance exhausted; explicitly grant extra_attempts")
 	}
 	stepAttempts := visitAttempts(r)
@@ -489,7 +491,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		if err := c.familyReserve(r, requested, need-1); err != nil {
 			return Run{}, err
 		}
-	} else {
+	} else if c.workLimitsEnabled() {
 		r.Process.MaxAttempts += req.ExtraAttempts
 	}
 	r.VisitExtraAttempts += req.ExtraAttempts
@@ -522,6 +524,10 @@ func (c *Core) Apply(s Snapshot, err error) {
 	}
 	if !reflect.DeepEqual(s.Instance.Release, c.snapshot.Instance.Release) {
 		c.configError = "release operator settings require restart; last valid configuration remains active"
+		return
+	}
+	if s.Instance.EnforceWorkLimits != c.snapshot.Instance.EnforceWorkLimits {
+		c.configError = "work-limit policy changes require service restart; last valid configuration remains active"
 		return
 	}
 	c.snapshot = Clone(s)
@@ -650,7 +656,7 @@ func (c *Core) tick() time.Duration {
 				op := "observe"
 				var ass Assignment
 				if a.State == NotStarted {
-					if err := releaseNotStartedStopReserve(r, c.familyAttempts(r)); err != nil {
+					if err := releaseNotStartedStopReserve(r, c.workLimitsEnabled(), c.familyAttempts(r)); err != nil {
 						if reason := Clip(err.Error()); r.Status != "Waiting" || r.Reason != reason {
 							r.Status, r.Reason = "Waiting", reason
 							a.Reconciling = false
@@ -685,7 +691,7 @@ func (c *Core) tick() time.Duration {
 		}
 		if r.Process.Steps[r.Step].ForEach != nil {
 			original := Clone(r)
-			if err := expandTasks(&r); err != nil {
+			if err := expandTasks(&r, c.workLimitsEnabled()); err != nil {
 				r.Status, r.Reason = "Failed", Clip(err.Error())
 			}
 			if err := c.persist(r, nil, nil); err == nil {
@@ -715,7 +721,7 @@ func (c *Core) tick() time.Duration {
 				continue
 			}
 		}
-		if err := releaseStopReserve(r, c.familyAttempts(r)); err != nil {
+		if err := releaseStopReserve(r, c.workLimitsEnabled(), c.familyAttempts(r)); err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())
 			_ = c.persist(r, nil, nil)
 			continue
@@ -855,21 +861,22 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		return Assignment{}, e
 	}
 	assignment := Assignment{
-		ProjectID:   r.ProjectID,
-		RunID:       r.ID,
-		Repository:  r.Repository,
-		Source:      Clone(r.Source),
-		AttemptID:   a.ID,
-		Setup:       ExecutionSetup{p},
-		Inputs:      inputs,
-		WorkDir:     filepath.Join(c.disk.Root, "work", a.ID),
-		OutputDir:   filepath.Join(c.disk.Root, "artifacts", a.ID),
-		Limits:      c.executionLimits(),
-		Task:        r.Roles[step.Role].Purpose,
-		OutputTypes: Clone(r.Roles[step.Role].Outputs),
-		AllowHelp:   step.Escalation != nil,
-		Outcomes:    stepOutcomes(step),
-		Deadline:    a.Deadline,
+		UnlimitedWork: !c.workLimitsEnabled(),
+		ProjectID:     r.ProjectID,
+		RunID:         r.ID,
+		Repository:    r.Repository,
+		Source:        Clone(r.Source),
+		AttemptID:     a.ID,
+		Setup:         ExecutionSetup{p},
+		Inputs:        inputs,
+		WorkDir:       filepath.Join(c.disk.Root, "work", a.ID),
+		OutputDir:     filepath.Join(c.disk.Root, "artifacts", a.ID),
+		Limits:        c.executionLimits(),
+		Task:          r.Roles[step.Role].Purpose,
+		OutputTypes:   Clone(r.Roles[step.Role].Outputs),
+		AllowHelp:     step.Escalation != nil,
+		Outcomes:      stepOutcomes(step),
+		Deadline:      a.Deadline,
 	}
 	if r.TaskGraph != nil {
 		if err := graphProfile(p, r.TaskGraph.WritePaths); err != nil {
@@ -884,10 +891,14 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 			known = known || saved.ID == a.ID
 		}
 		if !known {
-			assignment.TaskContext.RemainingAttempts = max(0, assignment.TaskContext.RemainingAttempts-1)
+			if !assignment.TaskContext.AttemptBudget.Unlimited {
+				assignment.TaskContext.RemainingAttempts = max(0, assignment.TaskContext.RemainingAttempts-1)
+			}
 			if budget := assignment.TaskContext.AttemptBudget; budget != nil {
 				budget.Spent++
-				budget.Remaining = max(0, budget.Remaining-1)
+				if !budget.Unlimited {
+					budget.Remaining = max(0, budget.Remaining-1)
+				}
 			}
 		}
 		if p.Access == "workspace-read" || p.Access == "workspace-write" {

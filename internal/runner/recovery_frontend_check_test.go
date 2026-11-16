@@ -96,7 +96,7 @@ func frontendRecheckFixture(t *testing.T) (*Core, *frontendRecheckStore, *fronte
 	}
 	store := &frontendRecheckStore{artifacts: map[string]Artifact{}, receipts: map[string]Receipt{}}
 	exec := &frontendRecheckExecutor{}
-	c := &Core{ctx: t.Context(), store: store, disk: disk, executor: exec, runs: map[string]Run{}, inFlight: map[string]bool{}, changed: make(chan struct{}), wake: make(chan struct{}, 1)}
+	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, ctx: t.Context(), store: store, disk: disk, executor: exec, runs: map[string]Run{}, inFlight: map[string]bool{}, changed: make(chan struct{}), wake: make(chan struct{}, 1)}
 	artifact := func(run Run, id, content string) Value {
 		if err := disk.Write("artifacts/"+id, []byte(content), policy.MaxArtifact); err != nil {
 			t.Fatal(err)

@@ -109,7 +109,7 @@ func cardRecoveryFixture(t *testing.T) (*Core, *cardRecoveryStore, *cardRecovery
 	}
 	store := &cardRecoveryStore{frontendRecheckStore: frontendRecheckStore{artifacts: map[string]Artifact{}, receipts: map[string]Receipt{}}}
 	executor := &cardRecoveryExecutor{}
-	c := &Core{ctx: t.Context(), store: store, executor: executor, disk: disk, runs: map[string]Run{}, inFlight: map[string]bool{}, wake: make(chan struct{}, 1), changed: make(chan struct{}), snapshot: Snapshot{Instance: Instance{TaskConcurrency: 2}}}
+	c := &Core{ctx: t.Context(), store: store, executor: executor, disk: disk, runs: map[string]Run{}, inFlight: map[string]bool{}, wake: make(chan struct{}, 1), changed: make(chan struct{}), snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true, TaskConcurrency: 2}}}
 	root := Run{RecordFormat: 3, ID: "run_card_root", ProjectID: "demo", Revision: 164, Repository: filepath.Join(disk.Root, "repo"), Source: &SourceSettings{Ref: strings.Repeat("a", 40)}, Process: process, Roles: roles, Profiles: map[string]string{}, Step: 3, Visit: 3, Status: "Failed", Reason: "task rendered_matrix: attempt deadline reached", ResourcesReleased: true, Inputs: map[string]Value{"request": Text("original approved repairs"), "package": Text("."), "tests": Text("[]"), "benchmark": Text(""), "review_evidence": {ArtifactID: "attempt_reference/result"}}}
 	add := func(run, id, value string) Value {
 		if e := disk.Write("artifacts/"+id, []byte(value), policy.MaxArtifact); e != nil {

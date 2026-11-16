@@ -1,6 +1,17 @@
 package runner
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestCorrectionRecoveryDoesNotConvertUnlimitedWorkIntoRouteCredit(t *testing.T) {
+	c := &Core{runs: map[string]Run{"root": {ID: "root"}}}
+	_, _, _, err := c.correctionRecovery(RecoverCorrectionsRequest{RunID: "root", WithinBudget: true})
+	if err == nil || !strings.Contains(err.Error(), "needs an enforced aggregate allowance") {
+		t.Fatal("unlimited aggregate capacity became a local correction allowance", err)
+	}
+}
 
 func TestCorrectionRecoveryMeansThreeTotalUsesOnlyForSourceBackedges(t *testing.T) {
 	r := Run{

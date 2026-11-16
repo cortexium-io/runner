@@ -53,8 +53,49 @@ func snapshot(p runner.StoragePolicy) runner.Snapshot {
 		Processes:      map[string]runner.Process{"demo": proc},
 	}
 	return runner.Snapshot{
-		Instance: runner.Instance{Concurrency: 2, ReconcileInterval: "20ms", Storage: p},
+		Instance: runner.Instance{EnforceWorkLimits: true, Concurrency: 2, ReconcileInterval: "20ms", Storage: p},
 		Projects: map[string]runner.Project{"demo": project},
+	}
+}
+
+func TestLegacyWorkLimitsAreOptionalAcrossSteps(t *testing.T) {
+	s := snapshot(policy())
+	s.Instance.EnforceWorkLimits = false
+	p := s.Projects["demo"]
+	proc := p.Processes["demo"]
+	proc.MaxAttempts = 1
+	proc.Steps = nil
+	for _, id := range []string{"one", "two", "three", "four"} {
+		proc.Steps = append(proc.Steps, runner.Step{
+			ID: id, Role: "worker",
+			Inputs: map[string]runner.Binding{"text": {FromInput: "text"}},
+		})
+	}
+	proc.Outputs = map[string]runner.Binding{"result": {FromStep: "four", Output: "result"}}
+	p.Processes["demo"] = proc
+	s.Projects["demo"] = p
+	r := openRig(t, t.TempDir(), s, nil)
+	defer r.close()
+	started := begin(t, r.core, "unlimited-legacy", "demo")
+	done := await(t, r.core, started.ID, released)
+	if done.Status != "Completed" || len(done.Attempts) != 4 || done.Process.MaxAttempts != 1 || done.TaskBudget == nil || !done.TaskBudget.Unlimited || done.TaskBudget.Spent != 4 || done.TaskBudget.Remaining != -1 {
+		t.Fatalf("dormant legacy ceiling changed work/accounting: %+v", done)
+	}
+}
+
+func TestWorkLimitPolicyReloadRequiresRestart(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		s := snapshot(policy())
+		s.Instance.EnforceWorkLimits = enabled
+		r := openRig(t, t.TempDir(), s, nil)
+		next := runner.Clone(s)
+		next.Instance.EnforceWorkLimits = !enabled
+		r.core.Apply(next, nil)
+		status := r.core.Status()
+		r.close()
+		if status.EnforceWorkLimits != enabled || !strings.Contains(status.ConfigError, "require service restart") {
+			t.Fatalf("reload changed admitted-work budget policy: %+v", status)
+		}
 	}
 }
 

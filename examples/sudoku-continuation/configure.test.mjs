@@ -68,9 +68,9 @@ test('retained setup accepts real readonly shape and rejects changed source/chec
   }
 });
 
-test('new instance references old project files without changing policy or credential sources', () => {
+test('new instance disables work caps while preserving resource policy and credential sources', () => {
   const original = {
-    projects: ['project.json'], concurrency: 1, max_active_attempts: 1, task_concurrency: 2,
+    projects: ['project.json'], enforce_work_limits: true, concurrency: 1, max_active_attempts: 1, task_concurrency: 2,
     storage: {max_managed: '10GiB', database: {max_record: '40KiB', max_runs: 128}},
     codex: {binary: 'codex', auth_file: 'private/auth.json', go_binary: './runtime/go', go_module_cache: 'runtime/modules',
       read_only_paths: ['frontend'], command_read_paths: ['runtime/tools']},
@@ -85,6 +85,7 @@ test('new instance references old project files without changing policy or crede
   assert.equal(prepared.concurrency, 1);
   assert.equal(prepared.task_concurrency, original.task_concurrency);
   assert.equal(prepared.max_active_attempts, 2);
+  assert.equal(prepared.enforce_work_limits, false);
   assert.equal(prepared.codex.auth_file, '/old/coordinator/private/auth.json');
   assert.equal(prepared.codex.binary, 'codex');
   assert.deepEqual(prepared.codex.read_only_paths, ['frontend']);
@@ -158,9 +159,10 @@ test('setup exposes bounded adaptive roles and authenticated dependency file bin
   assert.match(lead, /cleanup\.browser_closed, server_stopped, database_removed and build_scratch_removed all true/);
   assert.match(lead, /preview\.running false/);
   assert.match(lead, /independent source and visual reports to approve that SAME source_sha256/);
-  assert.match(lead, /initial policy has twenty child slots and a 64-attempt ceiling including 36 prior attempts/);
-  assert.match(lead, /effective attempt_budget.limit reflects explicit owner grants/);
-  assert.match(lead, /task_context\.policy, remaining_tasks and remaining_attempts/);
+  assert.match(lead, /task_context\.attempt_budget\.unlimited/);
+  assert.match(lead, /task_context\.unlimited_tasks/);
+  assert.match(lead, /remaining_attempts and remaining_tasks are -1/);
+  assert.match(lead, /do not stop or ask for an allowance/);
   assert.match(lead, /never dump the whole patch or raw check report/);
   assert.match(lead, /delivered check:text and compact protected summary\.json through request\.evidence_files using existing native file tools/);
   assert.match(lead, /Completed\/ready with summary\.status failed or blocked is delivered failure evidence, not review readiness/);

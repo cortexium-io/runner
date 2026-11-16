@@ -318,6 +318,7 @@ for (const name of sourceRuntime ? ['verify-existing'] : ['writing', 'saas']) {
 }
 await json(path.join(config, 'instance.json'), {
   projects: sourceRuntime ? ['projects/saas.json'] : ['projects/writing.json', 'projects/saas.json'],
+  enforce_work_limits: false,
   concurrency: sourceRuntime ? 1 : 3,
   task_concurrency: sourceRuntime ? 1 : 2,
   reconcile_interval: '1s',

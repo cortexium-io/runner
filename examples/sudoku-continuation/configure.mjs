@@ -168,6 +168,7 @@ export function resolveInstance(instance, instancePath, targetProject) {
   }
   // Explicitly authorized machine admission for the new general-task family.
   // Legacy task-source concurrency and every stored run definition stay frozen.
+  result.enforce_work_limits = false;
   result.max_active_attempts = 2;
   return result;
 }

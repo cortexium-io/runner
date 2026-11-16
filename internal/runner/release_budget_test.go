@@ -71,7 +71,7 @@ func TestReleaseApprovalReserveExactAndOneShort(t *testing.T) {
 					used++
 				}
 				r.Attempts = make([]Attempt, used)
-				c := &Core{}
+				c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}}
 				a := &Attempt{ID: "saved", End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "ready", Outputs: map[string]Value{"receipt": {Inline: json.RawMessage(`{}`)}}}}}
 				c.route(&r, a)
 				if short {
@@ -98,11 +98,11 @@ func TestReleaseReserveUsesRemainingConfiguredRecoveryAndEffectiveTotal(t *testi
 	}
 	r.Attempts = make([]Attempt, 29)
 	route := r.Process.Steps[r.Step].Routes["ready"]
-	if err := releaseApprovalReserve(r, "ready", route); err == nil {
+	if err := releaseApprovalReserve(r, true, "ready", route); err == nil {
 		t.Fatal("35 total admitted a ten-attempt suffix with six slots")
 	}
 	r.Process.MaxAttempts = 39 // Existing explicit Retry extra-attempt accounting.
-	if err := releaseApprovalReserve(r, "ready", route); err != nil {
+	if err := releaseApprovalReserve(r, true, "ready", route); err != nil {
 		t.Fatal("explicit effective total was ignored", err)
 	}
 	old := ReleaseBudgetTestRun(t, false)
@@ -110,7 +110,7 @@ func TestReleaseReserveUsesRemainingConfiguredRecoveryAndEffectiveTotal(t *testi
 		t.Fatal("standalone suffix acquired nonexistent recovery stages", got, err)
 	}
 	old.Attempts = make([]Attempt, 1)
-	if err := releaseApprovalReserve(old, "ready", old.Process.Steps[old.Step].Routes["ready"]); err != nil {
+	if err := releaseApprovalReserve(old, true, "ready", old.Process.Steps[old.Step].Routes["ready"]); err != nil {
 		t.Fatal("original eight-attempt standalone release no longer fits", err)
 	}
 }
@@ -121,7 +121,7 @@ func TestReleaseReserveRejectsUnsupportedSuffixAndSkipsOrdinaryApproval(t *testi
 	route := r.Process.Steps[i].Routes["retry_safe"]
 	route.MaxTimes = 0
 	r.Process.Steps[i].Routes["retry_safe"] = route
-	if err := releaseStopReserve(func() Run { r.Step = ReleaseBudgetTestStep(r, "stop"); return r }()); err == nil {
+	if err := releaseStopReserve(func() Run { r.Step = ReleaseBudgetTestStep(r, "stop"); return r }(), true); err == nil {
 		t.Fatal("unsupported unbounded release loop was admitted")
 	}
 	r = ReleaseBudgetTestRun(t, true)
@@ -136,7 +136,7 @@ func TestReleaseReserveRejectsUnsupportedSuffixAndSkipsOrdinaryApproval(t *testi
 	role.Profiles = map[string]Profile{"frozen": base, "changed": other}
 	r.Roles[roleID] = role
 	r.Step, r.NextProfile = stop, "changed"
-	if err := releaseStopReserve(r); err == nil {
+	if err := releaseStopReserve(r, true); err == nil {
 		t.Fatal("named retry profile changed the protected release mode")
 	}
 	r = ReleaseBudgetTestRun(t, true)
@@ -144,7 +144,7 @@ func TestReleaseReserveRejectsUnsupportedSuffixAndSkipsOrdinaryApproval(t *testi
 	r.Process.Steps[0].Reuse = true
 	r.Process.Steps[0].ForEach = &TaskGroup{}
 	r.Roles[r.Process.Steps[0].Role] = Role{Execution: &Profile{Harness: "deterministic"}}
-	if err := releaseApprovalReserve(r, "ready", Route{Approval: true, Next: "$complete"}); err != nil {
+	if err := releaseApprovalReserve(r, true, "ready", Route{Approval: true, Next: "$complete"}); err != nil {
 		t.Fatal("release guard changed ordinary model/fanout approval behavior", err)
 	}
 }
@@ -153,12 +153,12 @@ func TestLongestConfiguredReleaseRecoveryFitsExactlyReservedEight(t *testing.T) 
 	r := ReleaseBudgetTestRun(t, true)
 	r.Step = ReleaseBudgetTestStep(r, "stop")
 	r.Attempts = make([]Attempt, 27)
-	c := &Core{}
+	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}}
 	for _, outcome := range []string{"ready", "ready", "ready", "retry_safe", "recovery_required", "ready", "ready", "ready"} {
 		r.Attempts = append(r.Attempts, Attempt{ID: "saved", Step: r.Step, Visit: r.Visit, State: Finished, End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: outcome, Outputs: map[string]Value{"receipt": {Inline: json.RawMessage(`{}`)}}}}})
 		c.route(&r, r.Current())
 		if r.Decision != nil {
-			if err := releaseApprovalReserve(r, outcome, r.Process.Steps[r.Step].Routes[outcome]); err != nil {
+			if err := releaseApprovalReserve(r, true, outcome, r.Process.Steps[r.Step].Routes[outcome]); err != nil {
 				t.Fatal("reserved recovery reapproval no longer fits", err)
 			}
 			r.Decision = nil
@@ -182,7 +182,7 @@ func TestDecideRechecksThinApprovalSavedByOlderOwner(t *testing.T) {
 	r.Attempts = make([]Attempt, 28)
 	r.Attempts[27] = Attempt{ID: "saved", Step: r.Step, State: Finished, End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "ready"}}}
 	r.Decision = &Decision{ID: "old-prompt", AttemptID: "saved", Step: r.Process.Steps[r.Step].ID, Outcome: "ready", Next: "merge"}
-	c := &Core{ctx: t.Context(), store: releaseBudgetReceiptLookup{}, runs: map[string]Run{r.ID: r}}
+	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, ctx: t.Context(), store: releaseBudgetReceiptLookup{}, runs: map[string]Run{r.ID: r}}
 	if _, err := c.Decide(DecisionRequest{RequestID: "approve-thin", RunID: r.ID, DecisionID: r.Decision.ID, Choice: "approve"}); err == nil || !strings.HasPrefix(err.Error(), "release attempt reserve:") {
 		t.Fatal("old thin approval was accepted", err)
 	}

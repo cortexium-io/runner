@@ -159,7 +159,7 @@ PRAGMA user_version=2; COMMIT;`)
 }
 
 func TestNormalizedAttemptSavePreservesHistoryAndAtomicity(t *testing.T) {
-	for _, fault := range []string{"oversize-attempt", "oversize-state", "oversize-definition", "shrink", "reorder", "duplicate", "downgrade", "artifact-failure", "too-many"} {
+	for _, fault := range []string{"oversize-attempt", "oversize-state", "oversize-definition", "shrink", "reorder", "duplicate", "downgrade", "artifact-failure"} {
 		t.Run(fault, func(t *testing.T) {
 			original := normalizedRun(2)
 			s := openNormalized(t, original)
@@ -182,14 +182,12 @@ func TestNormalizedAttemptSavePreservesHistoryAndAtomicity(t *testing.T) {
 			case "artifact-failure":
 				r.Reason = "must roll back with attempt update"
 				r.Attempts[1].End.Result.Outputs["missing"] = runner.Value{ArtifactID: "missing/report"}
-			case "too-many":
-				r = normalizedRun(129)
 			}
 			err := s.Save(t.Context(), r, nil, nil)
 			if err == nil {
 				t.Fatal("invalid save accepted")
 			}
-			if strings.HasPrefix(fault, "oversize") || fault == "too-many" {
+			if strings.HasPrefix(fault, "oversize") {
 				if !errors.Is(err, runner.ErrCapacity) {
 					t.Fatal("capacity failure lost classification", err)
 				}

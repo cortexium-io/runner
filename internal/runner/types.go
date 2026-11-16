@@ -102,6 +102,9 @@ func (p StoragePolicy) Validate() error {
 }
 
 type Instance struct {
+	// EnforceWorkLimits opts into the frozen aggregate attempt and task-count
+	// ceilings. Local retries and resource/permission boundaries always apply.
+	EnforceWorkLimits bool             `json:"enforce_work_limits"`
 	Projects          []string         `json:"projects"`
 	Concurrency       int              `json:"concurrency"`
 	MaxActiveAttempts int              `json:"max_active_attempts,omitempty"`
@@ -351,6 +354,7 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
+	UnlimitedWork           bool                       `json:"unlimited_work,omitempty"`
 	TaskContext             *TaskContext               `json:"task_context,omitempty"`
 	SourceHandoff           *UnpublishedCardAssessment `json:"source_handoff,omitempty"`
 	CallerReviewScope       string                     `json:"caller_review_scope,omitempty"`

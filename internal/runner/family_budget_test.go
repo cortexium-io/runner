@@ -25,7 +25,7 @@ func familyBudgetFixture() (*Core, Run) {
 	one := childForItem(root, group, group.Items[0], "child-one")
 	two := childForItem(root, group, group.Items[1], "child-two")
 	one.Attempts, two.Attempts = make([]Attempt, 3), make([]Attempt, 5)
-	return &Core{runs: map[string]Run{root.ID: root, one.ID: one, two.ID: two}}, root
+	return &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, runs: map[string]Run{root.ID: root, one.ID: one, two.ID: two}}, root
 }
 
 func TestFamilyBudgetSharesOneRootCeilingWithoutMutation(t *testing.T) {
@@ -59,7 +59,7 @@ func TestFamilyBudgetSharesOneRootCeilingWithoutMutation(t *testing.T) {
 
 func TestFamilyBudgetPreservesLegacyAndEffectiveAllowances(t *testing.T) {
 	r := Run{ID: "legacy", Process: Process{MaxAttempts: 35}, Attempts: make([]Attempt, 28)}
-	c := &Core{}
+	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}}
 	if c.familyAttempts(r) != 28 || c.familyRemaining(r) != 7 || c.familyReserve(r, 1, 6) != nil || c.familyReserve(r, 1, 7) == nil {
 		t.Fatal("legacy35-attempt allowance changed")
 	}
@@ -71,6 +71,36 @@ func TestFamilyBudgetPreservesLegacyAndEffectiveAllowances(t *testing.T) {
 		if c.familyReserve(r, costs[0], costs[1]) == nil {
 			t.Fatal("invalid reserve accepted", costs)
 		}
+	}
+}
+
+func TestFamilyWorkLimitsDisabledPreserveOwnershipAndHistory(t *testing.T) {
+	c, root := familyBudgetFixture()
+	root.Process.MaxAttempts = 9 // The retained family has already spent ten.
+	c.runs[root.ID] = root
+	c.snapshot.Instance.EnforceWorkLimits = false
+	before, _ := json.Marshal(c.runs)
+	if c.familyRemaining(root) <= 0 || c.familyReserve(root, 100, 100) != nil {
+		t.Fatal("dormant aggregate limit still blocked admitted work")
+	}
+	budget := c.familyAttemptBudget(root)
+	if budget == nil || !budget.Unlimited || budget.Spent != 10 || budget.Limit != 0 || budget.Remaining != -1 {
+		t.Fatal("public budget disguised unlimited capacity as exhausted or finite", budget)
+	}
+	after, _ := json.Marshal(c.runs)
+	if string(before) != string(after) {
+		t.Fatal("effective policy rewrote frozen definitions or charged history")
+	}
+	c.snapshot.Instance.EnforceWorkLimits = true
+	if c.familyRemaining(root) != 0 || c.familyReserve(root, 1, 0) == nil {
+		t.Fatal("explicit enforcement ignored the retained finite cap")
+	}
+	c.snapshot.Instance.EnforceWorkLimits = false
+	child := c.runs["child-one"]
+	child.ProjectID = "foreign"
+	c.runs[child.ID] = child
+	if c.familyRemaining(root) != 0 || c.familyReserve(root, 1, 0) == nil {
+		t.Fatal("disabled work limits bypassed family ownership")
 	}
 }
 

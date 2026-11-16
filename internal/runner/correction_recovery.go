@@ -140,6 +140,9 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		if req.MaxUses != 0 || req.PreserveSource || r.Task != nil {
 			return reject("within_budget requires settled root recovery without max_uses or preserve_source")
 		}
+		if !c.workLimitsEnabled() {
+			return reject("within_budget correction recovery needs an enforced aggregate allowance; use the bounded local correction grant")
+		}
 	} else if req.MaxUses != 3 {
 		return reject("max_uses must be three total uses per source-correction route")
 	}
@@ -158,7 +161,7 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	if !eligible || !req.WithinBudget && route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
 		return reject("current failure is not an exhausted eligible source-correction route")
 	}
-	if len(r.Attempts) >= r.Process.MaxAttempts {
+	if c.workLimitsEnabled() && len(r.Attempts) >= r.Process.MaxAttempts {
 		return reject("original total attempt allowance is exhausted")
 	}
 	if req.PreserveSource && (!r.CleanupBlocked || r.CleanupError == "") {

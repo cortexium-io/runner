@@ -21,7 +21,7 @@ func TestGeneralTaskAdmissionReservesFutureResultReferenceState(t *testing.T) {
 		Roles:     map[string]Role{"worker": {ID: "worker", Purpose: "Produce a result", Inputs: map[string]string{}, Outputs: map[string]string{"report": "text"}, Execution: &Profile{Harness: "deterministic"}}},
 		TaskGraph: &TaskGraphState{RootRunID: "root", TaskID: "root", Brief: "Complete the goal"},
 	}
-	c := &Core{disk: disk, runs: map[string]Run{root.ID: root}}
+	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, disk: disk, runs: map[string]Run{root.ID: root}}
 	var tasks []RoleTask
 	found := false
 	for padding := 1; padding < 512; padding++ {
@@ -121,12 +121,13 @@ func TestGeneralTaskResumptionPersistenceFailureDoesNotAutoWaitForever(t *testin
 			}
 			store := &rejectedResumptionStore{}
 			c := &Core{
-				ctx:     t.Context(),
-				disk:    disk,
-				store:   store,
-				changed: make(chan struct{}),
-				wake:    make(chan struct{}, 1),
-				runs:    map[string]Run{root.ID: root, child.ID: child},
+				snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}},
+				ctx:      t.Context(),
+				disk:     disk,
+				store:    store,
+				changed:  make(chan struct{}),
+				wake:     make(chan struct{}, 1),
+				runs:     map[string]Run{root.ID: root, child.ID: child},
 			}
 			if tc.nested {
 				outer := Clone(root)

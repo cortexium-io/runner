@@ -1,3 +1,4 @@
+enforce_work_limits: false
 projects:
   - projects/demo/project.yaml
 concurrency: 2

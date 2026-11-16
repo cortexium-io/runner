@@ -10,6 +10,12 @@ import (
 // than accidentally giving an orphaned or duplicated child another budget.
 const invalidFamilyAttempts = math.MaxInt / 2
 
+// Work limits are optional instance policy. Frozen process definitions and all
+// charged executions remain intact when their aggregate ceilings are dormant.
+func (c *Core) workLimitsEnabled() bool {
+	return c.snapshot.Instance.EnforceWorkLimits
+}
+
 func (c *Core) familyAttempts(r Run) int {
 	if r.TaskGraph != nil {
 		root, members, _, err := c.graphFamily(r)
@@ -118,18 +124,26 @@ func (c *Core) reservedTaskChild(root Run, groupID string, entry TaskChild) bool
 }
 
 func (c *Core) familyRemaining(r Run) int {
+	var root Run
+	var err error
 	if r.TaskGraph != nil {
-		root, err := c.graphRoot(r)
-		if err != nil {
-			return 0
-		}
-		return max(0, root.Process.MaxAttempts-c.familyAttempts(r))
+		root, err = c.graphRoot(r)
+	} else {
+		root, err = c.taskRoot(r)
 	}
-	root, err := c.taskRoot(r)
 	if err != nil {
 		return 0
 	}
-	return max(0, root.Process.MaxAttempts-c.familyAttempts(r))
+	used := c.familyAttempts(r)
+	if used == invalidFamilyAttempts {
+		return 0
+	}
+	if !c.workLimitsEnabled() {
+		// Internal admission callers need only a non-exhausted value. Public
+		// budgets report unlimited explicitly rather than exposing this sentinel.
+		return invalidFamilyAttempts - 1
+	}
+	return max(0, root.Process.MaxAttempts-used)
 }
 
 // The scheduler supplies the finite, validated root-tail and unfinished-child
@@ -149,6 +163,9 @@ func (c *Core) familyReserve(r Run, requestedAttempts, reservedRootTail int) err
 	used := c.familyAttempts(r)
 	if used == invalidFamilyAttempts {
 		return errors.New("shared task attempt reserve: family ownership is invalid")
+	}
+	if !c.workLimitsEnabled() {
+		return nil
 	}
 	remaining := root.Process.MaxAttempts - used
 	if requestedAttempts > remaining || reservedRootTail > remaining-requestedAttempts {

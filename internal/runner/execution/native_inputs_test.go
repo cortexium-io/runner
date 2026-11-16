@@ -132,6 +132,24 @@ func assertInlineFiles(t *testing.T, a runner.Assignment, payload string, files 
 	}
 }
 
+func TestAppServerEffectiveWorkPolicyOverridesHistoricalBudgetProse(t *testing.T) {
+	a := retainedInputAssignment(t)
+	for _, unlimited := range []bool{false, true} {
+		a.UnlimitedWork = unlimited
+		payload, _, _, err := nativePayloadPlan(a, a.Deadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var request struct {
+			WorkPolicy string `json:"work_policy"`
+			Task       string `json:"task"`
+		}
+		if err := json.Unmarshal([]byte(payload), &request); err != nil || (request.WorkPolicy == unlimitedWorkPolicy) != unlimited || request.Task != a.Task {
+			t.Fatalf("effective policy changed assignment: %+v %v", request, err)
+		}
+	}
+}
+
 func TestNativeInlineObjectCannotImpersonateStagedFile(t *testing.T) {
 	a := retainedInputAssignment(t)
 	ordinary := json.RawMessage(`{"runner_input_file":"/private/not-an-input","encoding":"json","json_type":"object"}`)

@@ -609,6 +609,9 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		inputs[k] = json.RawMessage(v.Inline)
 	}
 	request := nativePayloadRequest{Task: a.Task, Inputs: inputs, MaxOutputBytes: p.MaxOutput}
+	if a.UnlimitedWork {
+		request.WorkPolicy = unlimitedWorkPolicy
+	}
 	if !a.Deadline.IsZero() {
 		request.DeadlineUTC = a.Deadline.UTC().Format(time.RFC3339Nano)
 		remaining := max(int64(0), int64(a.Deadline.Sub(now)/time.Second))

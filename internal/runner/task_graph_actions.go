@@ -38,7 +38,7 @@ func (c *Core) graphAction(r *Run, result *StepResult) error {
 		return errors.New("delegation needs role tasks and cannot also ask a question")
 	}
 	policy := root.Process.Tasks
-	if len(members)-1+reserved+len(action.Tasks) > policy.MaxTasks {
+	if c.workLimitsEnabled() && len(members)-1+reserved+len(action.Tasks) > policy.MaxTasks {
 		return errors.New("task proposal exceeds the frozen goal task allowance")
 	}
 	if len(c.runs)+c.graphReservations()+len(action.Tasks) > c.disk.Policy.RetainedRunCapacity() {
@@ -245,8 +245,15 @@ func (c *Core) graphReserve(r Run, extra int, resuming bool) error {
 	if resuming && r.Active() {
 		need++
 	}
-	if remaining := root.Process.MaxAttempts - c.familyAttempts(r); need > remaining {
-		return fmt.Errorf("task admission needs %d completion attempts; %d remain in the frozen goal allowance", need, remaining)
+	spent := c.familyAttempts(r)
+	if spent == invalidFamilyAttempts {
+		return errors.New("task admission requires intact family ownership")
+	}
+	if c.workLimitsEnabled() {
+		remaining := root.Process.MaxAttempts - spent
+		if need > remaining {
+			return fmt.Errorf("task admission needs %d completion attempts; %d remain in the frozen goal allowance", need, remaining)
+		}
 	}
 	return nil
 }

@@ -14,10 +14,8 @@ func taskParentID(r Run) string {
 
 func (c *Core) outputRun(r Run) Run {
 	r = Clone(r)
+	r.TaskBudget = c.familyAttemptBudget(r)
 	if r.TaskGraph != nil {
-		if root, err := c.graphRoot(r); err == nil && root.TaskGraph.Lineage != nil {
-			r.TaskBudget = c.graphAttemptBudget(r)
-		}
 		c.outputGraph(&r, r, false)
 		return r
 	}

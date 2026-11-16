@@ -20,8 +20,12 @@ extra model verifier or planner for a repair.
 
 Use a freshly built Runner containing native role-task support. Do not point
 these examples at an installed pilot or existing state. Configuration has explicit
-per-request task/revision/attempt bounds and records the selected runtime;
-existing runs keep their own frozen policy.
+per-request definitions and records the selected runtime. Generated instances use
+`enforce_work_limits: false`, disabling aggregate attempt and total child-task
+ceilings for every project, including retained runs. Historical definitions and
+spent-attempt counts remain intact. Set the instance flag to `true` to opt into
+the configured finite ceilings. Local retry/repair limits, concurrency, timeouts,
+storage admission and authorization remain enforced.
 
 Run configure.mjs with absolute paths to installed, already qualified runtimes:
 
@@ -67,8 +71,11 @@ profiles; native provenance records actual exposure, usage and timing.
 
 The product description contains the fixed acceptance once. Each role receives
 only its relevant runtime paths and compact dependency reports. Full delivery is
-bounded by ten tasks, 48 aggregate attempts and two repair pairs; these are this
-qualification's settings, not universal project limits. An explicit ready→fail
+configured with ten tasks, 48 aggregate attempts and two repair pairs. The first
+two ceilings apply only when instance `enforce_work_limits` is true; the local
+two-pair repair bound remains enforced. Roles read
+`task_context.attempt_budget.unlimited` and `task_context.unlimited_tasks` before
+using remaining counters; `-1` means unlimited. An explicit ready→fail
 route prevents a default model outcome from bypassing the lead's accepted or
 rejected decision.
 
@@ -101,8 +108,8 @@ with project saas and another ID. The helper uses Runner's supported --inputs
 argument without shell interpolation. Choose an unused local listener and keep
 that endpoint explicit for every command. Rejoin the saved run rather than resubmitting
 when a caller stops waiting. Human questions and interventions go through
-Runner's normal task controls. A policy/permission limit is visible evidence,
-not permission to increase an active run's allowances or finish externally.
+Runner's normal task controls. A local retry, resource or permission failure is
+visible evidence, not permission to bypass that boundary or finish externally.
 
 For the minimal writing comparison, submit the same writing-small.json with
 --process write-quick and a distinct request ID:

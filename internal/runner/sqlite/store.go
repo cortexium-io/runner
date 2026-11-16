@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 12 {
+	if version < 0 || version > 13 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -212,6 +212,22 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Explicit definition amendments preserve prior guidance in artifacts.
 		// Older writers must not discard this authority or compact task specs.
 		if _, e = db.Exec("PRAGMA user_version=12"); e != nil {
+			return nil, e
+		}
+		version = 12
+	}
+	if version == 12 {
+		// Aggregate work limits are now optional. Keep all rows byte-for-byte,
+		// and let record/database bytes bound storage rather than a hidden
+		// execution-count ceiling. Older binaries must not reopen this state.
+		if _, e = db.Exec(`BEGIN;
+CREATE TABLE attempts_v13(run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+position INTEGER NOT NULL CHECK(position>=0), id TEXT NOT NULL UNIQUE, data BLOB NOT NULL,
+PRIMARY KEY(run_id,position));
+INSERT INTO attempts_v13(run_id,position,id,data) SELECT run_id,position,id,data FROM attempts;
+DROP TABLE attempts;
+ALTER TABLE attempts_v13 RENAME TO attempts;
+PRAGMA user_version=13; COMMIT;`); e != nil {
 			return nil, e
 		}
 	}

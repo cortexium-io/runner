@@ -10,7 +10,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func TestGeneralTaskHistoryExceedsLegacy128WithoutChangingLegacyBound(t *testing.T) {
+func TestNormalizedHistoryHasNoHiddenAggregateAttemptCap(t *testing.T) {
 	r := normalizedRun(129)
 	r.RecordFormat = 9
 	r.Process.MaxAttempts = 256
@@ -23,17 +23,36 @@ func TestGeneralTaskHistoryExceedsLegacy128WithoutChangingLegacyBound(t *testing
 	}
 	legacy := runner.Clone(r)
 	legacy.ID, legacy.RecordFormat, legacy.TaskGraph, legacy.Process.Tasks = "legacy", 3, nil, nil
-	if err := s.Save(t.Context(), legacy, nil, nil); err == nil {
-		t.Fatal("new general-task storage range silently widened the legacy attempt allowance")
+	for i := range legacy.Attempts {
+		a := &legacy.Attempts[i]
+		a.ID = "legacy_" + a.ID
+		a.Source.AttemptID, a.Source.PatchID = a.ID, a.ID+"/changes.patch"
+	}
+	if err := s.Save(t.Context(), legacy, nil, nil); err != nil {
+		t.Fatal("legacy history still has a hidden 128-attempt storage cap", err)
+	}
+	if count, err := storedAttemptCount([]byte(`{"record_format":9,"attempt_count":32769}`)); err != nil || count != 32769 {
+		t.Fatal("metadata still has a hidden general-task execution cap", count, err)
+	}
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(t.Context(), "INSERT INTO attempts(run_id,position,id,data) VALUES(?,?,?,?)", r.ID, 32768, "past_old_position_bound", []byte(`{"id":"past_old_position_bound"}`)); err != nil {
+		t.Fatal("physical normalized rows still have a hidden execution cap", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 12 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 13 {
 		t.Fatalf("general task physical attempt range lacks its versioned schema: %d %v", version, err)
 	}
 }
 
 func TestGeneralTaskSchemaUpgradePreservesRetainedBytes(t *testing.T) {
-	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11} {
+	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := normalizedRun(2)
 			s := openNormalized(t, r)
@@ -75,7 +94,7 @@ PRAGMA user_version=3; COMMIT;`); err != nil {
 				t.Fatalf("schema migration rewrote retained data: %v", err)
 			}
 			var marker int
-			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 12 {
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 13 {
 				t.Fatalf("native-policy downgrade guard missing: version=%d error=%v", marker, err)
 			}
 		})

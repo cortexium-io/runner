@@ -4,6 +4,25 @@ Runner owns the configured delivery process. An external chat owns understanding
 the user's intent, submitting authorized work and reporting results or decisions.
 It must not become a second worker or scheduler when something fails.
 
+## Optional total-work limits
+
+Aggregate attempt and total task-count enforcement is opt-in instance policy:
+`enforce_work_limits` defaults to false. The setting applies to every configured
+project and retained run; frozen numeric ceilings and spending remain recorded.
+An effective `attempt_budget.unlimited: true` and `remaining: -1` mean there is
+no aggregate allowance to increase. `task_context.unlimited_tasks` likewise
+disables total child-count enforcement. Native requests carry authoritative
+`work_policy` separately from historical instructions. This also removes the
+older Core collection's eight-card and expanded-step caps when disabled.
+
+Local failed-visit retry, correction/repetition, depth, permission, concurrency,
+execution timeout and resource bounds still apply. A restart is required to
+change this policy. Finite aggregate reserve instructions later in this document
+apply only with enforcement enabled; structural release checks, owner approval,
+provenance and settlement always apply. Historical failures are not restarted by
+changing the policy. The `recover-corrections --within-budget` mode needs a finite
+enforced aggregate allowance; the ordinary bounded local grant remains available.
+
 ## Mobile evidence intake and native gate
 
 The candidate-evidence and independent image-review version of

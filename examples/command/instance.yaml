@@ -1,3 +1,4 @@
+enforce_work_limits: false
 projects: [project.yaml]
 concurrency: 1
 reconcile_interval: 5m

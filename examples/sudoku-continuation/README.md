@@ -9,9 +9,11 @@ The owning Core/store must retain
 `run_FNR3X224USDKLFCMAKXCGD754R`, its exact source attempt
 `attempt_W5RH764QVM43P33C4F7F7QKFOU` and passing check
 `attempt_6GJSYCYUNLWGAKZA4IAI5UVJNY`. `ContinueTask` atomically freezes spending
-by the entire old family and charges its authoritative historical debit against
-the unchanged 64-attempt ceiling. The observed handoff has spent 36, leaving at
-most 28 new attempts. The old Failed status, records, original process, source
+by the entire old family and preserves its authoritative historical debit and
+original 64-attempt ceiling. That historical limit is enforced only when the
+instance opts into `enforce_work_limits: true`; the builder explicitly disables
+both aggregate attempt and total child-task ceilings. The observed handoff has
+spent 36. The old Failed status, records, original process, source
 and passing evidence remain preserved. Do not use `runner_start` or an unlinked
 new state directory for this handoff.
 
@@ -48,8 +50,8 @@ Runner state or duplicate old project/config files.
 
 The new instance references every original project file by absolute path and
 adds `sudoku-preview` with one empty `source/` workspace and a separate `preview/`
-directory. Existing instance policy is preserved with one explicit machine
-admission choice: `max_active_attempts: 2`. Legacy `concurrency: 1` remains one;
+directory. Existing resource policy is preserved with explicit machine choices:
+`enforce_work_limits: false` and `max_active_attempts: 2`. Legacy `concurrency: 1` remains one;
 the new family can run its two eligible reviews concurrently. This changes no
 stored run definition or allowance. Relative instance runtime paths are resolved
 against the original instance directory so relocating the wrapper changes no
@@ -126,13 +128,16 @@ relevant unresolved findings, rather than attaching the full historical report
 chain. Older failed/blocked reports remain diagnostic history. Reviews are
 admitted after the relevant proof or images actually exist, rather than
 speculatively behind an unfinished checker.
-The initial ceilings are twenty child slots and 64 attempts including the 36
-historical attempts; explicit owner grants change only the effective aggregate
-ceiling and are exposed alongside immutable lineage. Current `task_context.policy`,
-`remaining_tasks` and `remaining_attempts` govern available capacity. Parent returns
-and retries consume the same remainder. Repeating a failure calls for reassessing
-the cause and approach within the agreement; the lead reserves capacity for the
-necessary correction and assessments rather than following a fixed cycle count.
+The historical definition retains twenty child slots and 64 attempts including
+the 36 historical executions; owner grants remain exposed alongside immutable
+lineage. Effective `task_context.attempt_budget.unlimited` and
+`task_context.unlimited_tasks` determine whether those ceilings apply. When both
+are true, `remaining_tasks` and `remaining_attempts` are `-1`, and the lead keeps
+working without an aggregate allowance request. Local retry limits, concurrency,
+timeouts and storage admission remain enforced. With explicit finite enforcement,
+parent returns and retries consume the same remaining allowance. Repeating a
+failure calls for reassessing the cause and approach within the agreement rather
+than following a global cycle count.
 Source review owns source quality and authenticated frontend proof; the lead
 owns complete goal acceptance and the UX role owns visual assessment. Valid
 unchanged proof is reused without treating browser or visual gaps as automatic

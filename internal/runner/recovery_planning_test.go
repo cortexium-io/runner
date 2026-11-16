@@ -67,7 +67,7 @@ func planningRecoveryFixture(t *testing.T) (*Core, *frontendRecheckStore, *plann
 	exec := &planningRecoveryExecutor{}
 	c := &Core{
 		ctx: t.Context(), store: store, disk: disk, executor: exec,
-		snapshot: Snapshot{Instance: Instance{TaskConcurrency: 2}},
+		snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true, TaskConcurrency: 2}},
 		runs:     map[string]Run{}, inFlight: map[string]bool{}, changed: make(chan struct{}), wake: make(chan struct{}, 1),
 	}
 	const blockedReason = "The rejected proposal is missing from the admission feedback."

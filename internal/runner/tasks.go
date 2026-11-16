@@ -21,7 +21,7 @@ func selectedRoles(steps []Step, roles map[string]Role, profiles map[string]stri
 
 // Expansion is a persisted transformation of a declared template. The same
 // coordinator, attempts, bindings, workspace and retention own the resulting work.
-func expandTasks(r *Run) error {
+func expandTasks(r *Run, enforce bool) error {
 	step := r.Process.Steps[r.Step]
 	g := step.ForEach
 	inputs, err := bindings(*r, map[string]Binding{"items": g.Items})
@@ -36,8 +36,11 @@ func expandTasks(r *Run) error {
 	var items []TaskItem
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	if err = dec.Decode(&items); err != nil || dec.Decode(new(any)) != io.EOF || len(items) < 1 || len(items) > 8 {
-		return errors.New("task collection must contain 1–8 declared items")
+	if err = dec.Decode(&items); err != nil || dec.Decode(new(any)) != io.EOF || len(items) < 1 {
+		return errors.New("task collection must contain declared items")
+	}
+	if enforce && len(items) > 8 {
+		return errors.New("task collection exceeds eight declared items")
 	}
 	byID := map[string]TaskItem{}
 	for _, item := range items {
@@ -86,7 +89,7 @@ func expandTasks(r *Run) error {
 			return errors.New("task dependency cycle")
 		}
 	}
-	if len(r.Process.Steps)+len(items)*len(g.Steps) > 64 {
+	if enforce && len(r.Process.Steps)+len(items)*len(g.Steps) > 64 {
 		return errors.New("expanded process exceeds 64 steps")
 	}
 	join := Step{ID: step.ID, Role: step.ID + "-join", Inputs: map[string]Binding{}, Routes: Clone(step.Routes)}

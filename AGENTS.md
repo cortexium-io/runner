@@ -2,6 +2,15 @@
 
 ## Current authority and scope
 
+On 16 November Dan explicitly authorized making global total-work limits
+optional and disabling both aggregate attempts and total child-task counts on
+all configured projects. Local retries, concurrency, execution timeouts and disk
+safeguards remain. Qualify and install this Runner maintenance; preserve original
+definitions, spent attempts, receipts, evidence and old-family freezes. Do not
+resume historical failed work or repeat completed Sudoku merely to remove a cap.
+Other configured projects already using a runtime without these caps need no
+incompatible migration. No merge, product deployment or restoration is authorized.
+
 On 16 November Dan explicitly authorized correcting the live retained Sudoku
 workflow, preserving all work/evidence, and raising its allowance enough to finish
 without further stage coordination. Amend the same root through the existing

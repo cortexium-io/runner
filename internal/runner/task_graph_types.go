@@ -106,6 +106,7 @@ type TaskRoleContract struct {
 }
 
 type TaskContext struct {
+	UnlimitedTasks    bool                     `json:"unlimited_tasks,omitempty"`
 	AttemptBudget     *TaskAttemptBudget       `json:"attempt_budget,omitempty"`
 	AllowanceGrant    *TaskAllowanceGrant      `json:"allowance_grant,omitempty"`
 	Maintenance       *TaskRecoveryAudit       `json:"maintenance,omitempty"`

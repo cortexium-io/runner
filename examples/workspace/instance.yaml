@@ -1,3 +1,4 @@
+enforce_work_limits: false
 projects:
   - projects/seats/project.yaml
 concurrency: 1

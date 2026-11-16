@@ -38,6 +38,25 @@ func TestHarnessStructuredTasksAndDeliverable(t *testing.T) {
 	}
 }
 
+func TestHarnessEffectiveWorkPolicyOverridesHistoricalBudgetProse(t *testing.T) {
+	a := harnessAssignment(t)
+	a.Setup.Profile.Instructions = "Historical process ceiling: 64 attempts."
+	for _, unlimited := range []bool{false, true} {
+		a.UnlimitedWork = unlimited
+		prompt, _, err := harnessPayload(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var request struct {
+			WorkPolicy   string `json:"work_policy"`
+			Instructions string `json:"instructions"`
+		}
+		if err := json.Unmarshal([]byte(prompt), &request); err != nil || (request.WorkPolicy == unlimitedWorkPolicy) != unlimited || !strings.Contains(request.Instructions, a.Setup.Profile.Instructions) {
+			t.Fatalf("effective policy or retained instructions lost: %+v %v", request, err)
+		}
+	}
+}
+
 func TestHarnessArtifactBoundary(t *testing.T) {
 	a := harnessAssignment(t)
 	a.OutputTypes = map[string]string{"document": "artifact"}

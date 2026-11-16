@@ -48,7 +48,7 @@ func (c *Core) collectionIDs(intent familyCollectionIntent) ([]string, error) {
 		seenRuns[run.ID] = true
 		ids = append(ids, run.ID)
 		for _, id := range run.Attempts {
-			if !collectionID(id) || seenAttempts[id] || len(seenAttempts) >= MaxGeneralTaskAttempts {
+			if !collectionID(id) || seenAttempts[id] {
 				return nil, errors.New("invalid or duplicate family collection attempt")
 			}
 			seenAttempts[id] = true

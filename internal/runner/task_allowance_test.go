@@ -94,3 +94,26 @@ func TestTaskAllowanceGrantDoesNotIncreaseAnExhaustedVisit(t *testing.T) {
 		t.Fatal("aggregate grant widened the bounded per-visit retry operation")
 	}
 }
+
+func TestTaskAllowanceGrantRetainsHistoryBeyondDormantCeiling(t *testing.T) {
+	c, _, _, request := taskContinuationFixture(t)
+	root, err := c.ContinueTask(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.snapshot.Instance.EnforceWorkLimits = false
+	root = c.runs[root.ID]
+	root.Status, root.ResourcesReleased = "Failed", true
+	for i := range 30 {
+		root.Attempts = append(root.Attempts, Attempt{ID: fmt.Sprintf("spent_unlimited_%d", i), Visit: i + 1, State: Finished, Released: true})
+	}
+	root.Visit = 30
+	c.runs[root.ID] = root
+	got, err := c.Retry(RetryRequest{RequestID: "retain-finite-definition-amendment", RunID: root.ID, ExtraAttempts: 8})
+	if err != nil || got.TaskBudget == nil || !got.TaskBudget.Unlimited || got.TaskBudget.Spent != 66 || got.Process.MaxAttempts != 72 || got.TaskGraph.AllowanceGrants[0].Spent != 66 {
+		t.Fatal("owner amendment rejected or reset legitimately unbounded history", got.TaskBudget, err)
+	}
+	if _, _, err := MarshalRunRecord(c.runs[root.ID]); err != nil {
+		t.Fatal("authenticated grant could not retain spending beyond its dormant prior limit", err)
+	}
+}

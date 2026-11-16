@@ -49,7 +49,7 @@ func TestTaskExpansionPrefixesFallbackWithoutChangingTemplate(t *testing.T) {
 		Roles:   map[string]Role{"work": {Outputs: map[string]string{"result": "artifact"}}},
 		Process: Process{Steps: []Step{{ID: "tasks", ForEach: &group}}},
 	}
-	if err := expandTasks(&r); err != nil {
+	if err := expandTasks(&r, true); err != nil {
 		t.Fatal(err)
 	}
 	b := r.Process.Steps[1].Inputs["evidence"]

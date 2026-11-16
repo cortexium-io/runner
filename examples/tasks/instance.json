@@ -1,4 +1,5 @@
 {
+  "enforce_work_limits": false,
   "projects": [
     "project.json"
   ],

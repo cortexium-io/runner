@@ -40,7 +40,7 @@ func TestFailedTaskSteerGuardsHaveNoEffects(t *testing.T) {
 			q := TaskInterventionRequest{RequestID: "owner-steer", RunID: r.ID, Revision: r.Revision, Action: "steer", Text: "Corrected runtime; reassess the same goal"}
 			tc.edit(&r, &q)
 			store := &interventionGuardStore{}
-			c := &Core{ctx: t.Context(), store: store, runs: map[string]Run{r.ID: Clone(r)}}
+			c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, ctx: t.Context(), store: store, runs: map[string]Run{r.ID: Clone(r)}}
 			if _, err := c.InterveneTask(q); err == nil || store.saves != 0 || !reflect.DeepEqual(c.runs[r.ID], r) {
 				t.Fatalf("rejected steering changed retained state or wrote a receipt: %v saves=%d", err, store.saves)
 			}
@@ -52,5 +52,16 @@ func TestSharedCommandDirectoryRejectedAtTaskAdmission(t *testing.T) {
 	p := Profile{Harness: "command", Mode: "shared", Access: "workspace-read", Command: &Command{Args: []string{"/usr/bin/true"}, Directory: "frontend"}}
 	if err := ValidateRoleTaskProfile(p); err == nil {
 		t.Fatal("shared task admission silently accepted an ignored working-directory field")
+	}
+}
+
+func TestGeneralTaskContextRejectsMalformedFamilyOwnership(t *testing.T) {
+	r := Run{
+		ID: "root", ProjectID: "demo", Process: Process{MaxAttempts: 1, Tasks: &TaskPolicy{}},
+		TaskGraph: &TaskGraphState{RootRunID: "root", TaskID: "root", Children: []RoleTaskLink{{RunID: "child"}}},
+	}
+	c := &Core{runs: map[string]Run{r.ID: r, "child": {ID: "child", ProjectID: "foreign"}}}
+	if _, err := c.graphContext(r); err == nil {
+		t.Fatal("malformed ownership produced an actionable native context")
 	}
 }

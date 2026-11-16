@@ -10,7 +10,7 @@ import (
 
 // Release reserve applies only to the already validated closed release suffix.
 // It neither budgets model work nor traverses arbitrary workflow graphs.
-func releaseApprovalReserve(r Run, outcome string, route Route, usedCount ...int) error {
+func releaseApprovalReserve(r Run, enforce bool, outcome string, route Route, usedCount ...int) error {
 	if r.Step < 0 || r.Step >= len(r.Process.Steps) {
 		return unsupportedReleaseBudget()
 	}
@@ -55,7 +55,7 @@ func releaseApprovalReserve(r Run, outcome string, route Route, usedCount ...int
 		return unsupportedReleaseBudget()
 	}
 	uses[key]++ // Approval will consume this edge before its target executes.
-	return releaseReserve(r, target, uses, 0, usedCount...)
+	return releaseReserve(r, enforce, target, uses, 0, usedCount...)
 }
 
 // An old owner may already have presented an approval before the reserve guard
@@ -75,7 +75,7 @@ func (c *Core) retireUnsafeReleaseDecision(r Run) bool {
 	if err != nil || profile.Harness != "release" {
 		return false
 	}
-	err = releaseApprovalReserve(r, d.Outcome, r.Process.Steps[r.Step].Routes[d.Outcome], c.familyAttempts(r))
+	err = releaseApprovalReserve(r, c.workLimitsEnabled(), d.Outcome, r.Process.Steps[r.Step].Routes[d.Outcome], c.familyAttempts(r))
 	if err == nil {
 		return false
 	}
@@ -93,20 +93,20 @@ func (c *Core) retireUnsafeReleaseDecision(r Run) bool {
 	return true
 }
 
-func releaseStopReserve(r Run, usedCount ...int) error {
-	return releaseStopReserveWithCredit(r, 0, usedCount...)
+func releaseStopReserve(r Run, enforce bool, usedCount ...int) error {
+	return releaseStopReserveWithCredit(r, enforce, 0, usedCount...)
 }
 
-func releaseNotStartedStopReserve(r Run, usedCount ...int) error {
+func releaseNotStartedStopReserve(r Run, enforce bool, usedCount ...int) error {
 	a := r.Current()
 	if a == nil || a.State != NotStarted {
 		return nil
 	}
 	r.NextProfile = a.Profile
-	return releaseStopReserveWithCredit(r, 1, usedCount...)
+	return releaseStopReserveWithCredit(r, enforce, 1, usedCount...)
 }
 
-func releaseStopReserveWithCredit(r Run, allocated int, usedCount ...int) error {
+func releaseStopReserveWithCredit(r Run, enforce bool, allocated int, usedCount ...int) error {
 	profileName := r.NextProfile
 	if profileName == "" {
 		profileName = r.Profiles[r.Process.Steps[r.Step].Role]
@@ -122,10 +122,10 @@ func releaseStopReserveWithCredit(r Run, allocated int, usedCount ...int) error 
 	if profile.Harness != "release" || profile.Mode != "stop" {
 		return nil
 	}
-	return releaseReserve(r, r.Step, r.RouteUses, allocated, usedCount...)
+	return releaseReserve(r, enforce, r.Step, r.RouteUses, allocated, usedCount...)
 }
 
-func releaseReserve(r Run, target int, uses map[string]int, allocated int, usedCount ...int) error {
+func releaseReserve(r Run, enforce bool, target int, uses map[string]int, allocated int, usedCount ...int) error {
 	need, err := releaseCompletionAttempts(r, target, uses)
 	if err != nil {
 		return err
@@ -136,6 +136,12 @@ func releaseReserve(r Run, target int, uses map[string]int, allocated int, usedC
 	}
 	if len(usedCount) == 1 {
 		used = usedCount[0]
+	}
+	if used == invalidFamilyAttempts {
+		return unsupportedReleaseBudget()
+	}
+	if !enforce {
+		return nil
 	}
 	available := r.Process.MaxAttempts - used + allocated
 	if available < need {

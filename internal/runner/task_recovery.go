@@ -175,7 +175,7 @@ func (c *Core) planTaskRecovery(req RecoverTasksRequest, now time.Time) ([]Run, 
 			parents[parentID] = true
 		}
 	}
-	prospective := &Core{runs: map[string]Run{}}
+	prospective := &Core{snapshot: c.snapshot, runs: map[string]Run{}}
 	for _, r := range family {
 		prospective.runs[r.ID] = Clone(r)
 	}
@@ -289,7 +289,7 @@ func taskRecoveryRecord(r Run) error {
 	}
 	seen := map[string]bool{}
 	for _, audit := range r.TaskGraph.Recoveries {
-		if audit.RequestID == "" || seen[audit.RequestID] || audit.OwnerID == "" || len(audit.TaskIDs) == 0 || len(audit.Rearmed) == 0 || audit.Spent < 1 || audit.Spent >= r.Process.MaxAttempts || strings.TrimSpace(audit.Reason) == "" || len(audit.Reason) > 2048 || audit.GrantedAt.IsZero() {
+		if audit.RequestID == "" || seen[audit.RequestID] || audit.OwnerID == "" || len(audit.TaskIDs) == 0 || len(audit.Rearmed) == 0 || audit.Spent < 1 || strings.TrimSpace(audit.Reason) == "" || len(audit.Reason) > 2048 || audit.GrantedAt.IsZero() {
 			return errors.New("invalid retained task maintenance audit")
 		}
 		seen[audit.RequestID] = true
