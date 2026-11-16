@@ -344,10 +344,17 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 				return errors.New("native source workspace capability is unavailable")
 			}
 			owned := runner.Clone(*a)
-			owned.Setup.Profile.Harness = "codex"
+			if !sourceSharedCommand(owned) {
+				owned.Setup.Profile.Harness = "codex"
+			}
 			w, err := n.workspaces.Prepare(ctx, owned)
 			if err != nil {
 				return err
+			}
+			if sourceSharedCommand(owned) {
+				if err := preparedCommandPatch(w, owned.Inputs["patch"].ArtifactID); err != nil {
+					return err
+				}
 			}
 			job.Workspace, job.Directory = &w, w.WorkDir
 		}

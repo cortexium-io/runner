@@ -24,12 +24,19 @@ func sharedCommand(a runner.Assignment) bool {
 	return a.Setup.Profile.Harness == "command" && a.Setup.Profile.Mode == "shared"
 }
 
+func sourceSharedCommand(a runner.Assignment) bool {
+	return sharedCommand(a) && a.TaskContext == nil
+}
+
 func sharedAssignment(a runner.Assignment) (runner.Assignment, error) {
 	p := a.Setup.Profile
-	if p.Command == nil || len(p.Command.Args) == 0 || p.Command.Directory != "" || (p.Access != "workspace-read" && p.Access != "workspace-write") || a.TaskContext == nil {
-		return a, errors.New("shared command needs configured argv and explicit general workspace access")
+	if p.Command == nil || len(p.Command.Args) == 0 || p.Command.Directory != "" || (p.Access != "workspace-read" && p.Access != "workspace-write") {
+		return a, errors.New("shared command needs configured argv and explicit workspace access")
 	}
-	if p.Access == "workspace-write" && len(a.TaskContext.WritePaths) == 0 {
+	if sourceSharedCommand(a) && (p.Access != "workspace-read" || a.Source == nil || a.Source.Ref == "" || !filepath.IsAbs(a.Repository) || a.Inputs["patch"].ArtifactID == "" || a.Inputs["patch"].Validate() != nil) {
+		return a, errors.New("source-owned shared command needs read-only access, explicit source and its candidate patch")
+	}
+	if p.Access == "workspace-write" && (a.TaskContext == nil || len(a.TaskContext.WritePaths) == 0) {
 		return a, errors.New("writable shared command needs declared task write paths")
 	}
 	values := append([]string{}, p.Command.Args...)
@@ -39,6 +46,9 @@ func sharedAssignment(a runner.Assignment) (runner.Assignment, error) {
 	selected := map[string]runner.RoleTaskResult{}
 	needsGoal := false
 	for _, value := range values {
+		if sourceSharedCommand(a) && (strings.Contains(value, "{goal}") || strings.Contains(value, "{dependency.")) {
+			return a, errors.New("goal and dependency command bindings require general task ownership")
+		}
 		if strings.Contains(value, "{goal}") {
 			if value != "{goal}" {
 				return a, errors.New("goal file binding must occupy one whole argument or environment value")
@@ -74,6 +84,9 @@ func sharedAssignment(a runner.Assignment) (runner.Assignment, error) {
 	}
 	if err := runner.ValidateRuntimeWritePaths(p.Command.RuntimeWritePaths); err != nil {
 		return a, err
+	}
+	if sourceSharedCommand(a) {
+		return a, nil // Source/candidate identity is authenticated during owned preparation.
 	}
 	// A fixed command does not consume a model context/catalog. Keep its frozen
 	// ownership and purpose without repeating every child's report in its job.
@@ -201,6 +214,9 @@ func validateSharedGoal(spec harnessSpec) error {
 }
 
 func sharedProcess(ctx context.Context, spec harnessSpec) (*exec.Cmd, error) {
+	if sourceSharedCommand(spec.Assignment) && spec.Directory != filepath.Join(spec.Root, "work", spec.Assignment.RunID, "source") {
+		return nil, errors.New("source-owned command directory differs from its owned workspace")
+	}
 	if err := validateSharedGoal(spec); err != nil {
 		return nil, err
 	}
@@ -258,6 +274,9 @@ func sharedSeatbeltPolicy(spec harnessSpec) string {
 	exceptions = append(exceptions, `(require-not (literal "/dev/null"))`, `(require-not (subpath "/dev/fd"))`)
 	policy := "(version 1)\n(allow default)\n(deny file-write* (require-all " + strings.Join(exceptions, " ") + "))\n"
 	readExceptions := []string{"(subpath " + strconv.Quote(spec.Root) + ")", "(require-not (subpath " + strconv.Quote(spec.Assignment.OutputDir) + "))", "(require-not (subpath " + strconv.Quote(filepath.Join(spec.Control, "tmp")) + "))"}
+	if sourceSharedCommand(spec.Assignment) && spec.Directory == filepath.Join(spec.Root, "work", spec.Assignment.RunID, "source") {
+		readExceptions = append(readExceptions, "(require-not (subpath "+strconv.Quote(spec.Directory)+"))")
+	}
 	for _, path := range harnessArtifactFiles(spec.Assignment) {
 		readExceptions = append(readExceptions, "(require-not (literal "+strconv.Quote(path)+"))")
 	}

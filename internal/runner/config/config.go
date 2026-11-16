@@ -377,6 +377,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 			if e = validateProcess(process, p); e != nil {
 				return s, fmt.Errorf("process %s: %w", name, e)
 			}
+			if process.Tasks == nil && s.Instance.Concurrency != 1 && sourceSharedProfiles(process.Steps, p) {
+				return s, fmt.Errorf("process %s: source-owned shared commands retain workspace concurrency one", name)
+			}
 			for _, step := range process.Steps {
 				if g := step.ForEach; g != nil && g.Mode == "isolated" && (s.Instance.TaskConcurrency == 0 || g.MaxParallel > s.Instance.TaskConcurrency) {
 					return s, fmt.Errorf("process %s: isolated group exceeds configured task_concurrency", name)
@@ -825,7 +828,18 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 			}
 			for _, profile := range profiles {
 				if profile.Harness == "command" && profile.Mode == "shared" {
-					return errors.New("shared command execution requires a general role-task process and its current workspace context")
+					if p.Source == nil || profile.Access != "workspace-read" || role.Inputs["patch"] != "artifact" || step.Inputs["patch"] != (runner.Binding{FromCandidate: true}) {
+						return errors.New("source-owned shared commands require read-only access and the current candidate patch")
+					}
+					values := append([]string{}, profile.Command.Args...)
+					for _, value := range profile.Command.Env {
+						values = append(values, value)
+					}
+					for _, value := range values {
+						if strings.Contains(value, "{goal}") || strings.Contains(value, "{dependency.") {
+							return errors.New("goal and dependency command bindings require a general role-task process")
+						}
+					}
 				}
 			}
 		}

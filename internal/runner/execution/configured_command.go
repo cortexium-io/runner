@@ -209,6 +209,20 @@ func (c *Commands) prepare(id string) {
 		}
 	}
 }
+func preparedCommandPatch(w workspaceRecord, patch string) error {
+	if patch == "" {
+		return nil
+	}
+	expected, ready := w.SeedPatchID, w.SeedReady
+	if w.Candidate != nil {
+		expected, ready = w.Candidate.PatchID, true
+	}
+	if !ready || expected != patch {
+		return errors.New("patch does not identify this workspace's prepared source")
+	}
+	return nil
+}
+
 func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	a := job.Assignment
 	w, err := c.workspaces.Prepare(ctx, a)
@@ -216,14 +230,8 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		return err
 	}
 	job.Workspace = &w
-	if patch := a.Inputs["patch"].ArtifactID; patch != "" {
-		expected, ready := w.SeedPatchID, w.SeedReady
-		if w.Candidate != nil {
-			expected, ready = w.Candidate.PatchID, true
-		}
-		if !ready || expected != patch {
-			return errors.New("patch does not identify this workspace's prepared source")
-		}
+	if err := preparedCommandPatch(w, a.Inputs["patch"].ArtifactID); err != nil {
+		return err
 	}
 	if pins := a.FrontendCheckPins; pins != nil {
 		if a.Inputs["patch"].ArtifactID == "" || w.Capture == nil || (pins.PatchSHA256 != "" || !pins.Serial) && w.Capture.PatchSHA != pins.PatchSHA256 {

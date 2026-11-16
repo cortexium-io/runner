@@ -870,8 +870,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if e != nil {
 		return Assignment{}, e
 	}
-	if p.Harness == "command" && p.Mode == "shared" && r.TaskGraph == nil {
-		return Assignment{}, errors.New("shared command execution requires a general role-task workspace context")
+	if p.Harness == "command" && p.Mode == "shared" && r.TaskGraph == nil &&
+		(p.Access != "workspace-read" || r.Source == nil || r.Repository == "" || c.snapshot.Instance.Concurrency != 1 || step.Inputs["patch"] != (Binding{FromCandidate: true})) {
+		return Assignment{}, errors.New("source-owned shared commands require read-only access and the current candidate patch")
 	}
 	inputs := Clone(r.StepInputs)
 	if inputs == nil {

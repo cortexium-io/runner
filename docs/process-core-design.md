@@ -105,6 +105,18 @@ unknown. Saved retry reconstruction preserves the relevant settled same-visit
 failure rather than losing it behind an unfinished attempt. This changes no model,
 timeout, byte ceiling, final-result authority or cleanup contract.
 
+The reviewed artifact/budget batch `b0d8365cfba4d54d6b8697cb5af48c4f875af9c7`
+is installed with executable SHA-256
+`8682c64ecfbe7c83152089bac7ab5d9e7d6c92403cc5628c9c9b9d636d966ad5`.
+Cold installation preserved all 127 retained runs and every existing table/schema
+fingerprint. Live goal staging completed once with exact original bytes and no
+pending cleanup. Linked root `run_IMYKXZ2FH6I72KD7Y2SHCEOEZR` retains the same
+completed parent at revision 4743; both failed intake roots remain unchanged.
+Its baseline has passed; product execution and independent acceptance are still
+pending. Code Atlas confirmed the exact comparison against `1d3fd737...`, with
+the changed byte-boundary and retry branches covered by the focused regressions.
+Static analysis does not establish product or unattended-delivery acceptance.
+
 ### Ordinary frontend references and project-owned verification, authorised 16 November 2026
 
 The separate Pocket Hideout house-ad request cannot use the fixed historical
@@ -130,6 +142,30 @@ actual configured browser/image access on disposable resources before selecting
 the future route. Keep the ad and Sudoku goals/workspaces separate and combine
 their project overlays into the actual current instance rather than installing
 an earlier configuration snapshot. No merge or production authority is granted.
+
+The bounded implementation is qualified but not installed while Sudoku is active.
+Source-owned shared commands reuse the existing captured-candidate/ready-seed
+predicate and worker recovery; all selectable ordinary profiles retain workspace
+concurrency one. Future configuration connects the unchanged focused check,
+candidate-owned verifier, independent project image role and one compact evidence
+assembly. The latter preserves original focused JSON and references canonical
+project images, with current patch/owner/verifier/archive identities. Failure
+diagnostics return through the existing correction owner; the protected suffix
+and native gate are unchanged. Routine checks use the existing shared Go cache,
+with only its exact directory additionally writable. Producer and decoder account
+for encoded metadata and archive overhead before publishing evidence.
+
+Qualification includes 33 Node tests, actual Core/SQLite reference staging and
+replay, current-source/scratch/private-state permissions, same-worker rejoin,
+headless Chrome for Testing phone/desktop transport, the exact shared-cache write
+grant and cleanup. Focused race/vet checks and the complete model-free workflow
+gate pass; independent review has no remaining P1/P2. Explicit Codex 0.169
+app-server readiness and existing legacy permission probes pass without starting
+a model turn. The staged complete definition is 40,146/40,960 bytes. Canonical
+receipts are in `/Users/dan/.codex/jbg31/frontend-reference-20261116-v2/`.
+This is not request-specific ad acceptance, native model image judgment or Linux
+runtime qualification. Actual product assertions and observations remain Runner
+work, and the unqualified native Safari gate remains closed.
 
 ### Linked accepted-task follow-up, authorized 16 November 2026
 

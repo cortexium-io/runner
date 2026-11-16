@@ -7,6 +7,29 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
+// Retry can select any frozen profile, including profiles in source-card steps.
+func sourceSharedProfiles(steps []runner.Step, project runner.Project) bool {
+	for _, step := range steps {
+		if step.ForEach != nil {
+			if sourceSharedProfiles(step.ForEach.Steps, project) {
+				return true
+			}
+			continue
+		}
+		role := project.Roles[step.Role]
+		profiles := role.Profiles
+		if role.Execution != nil {
+			profiles = map[string]runner.Profile{"default": *role.Execution}
+		}
+		for _, profile := range profiles {
+			if profile.Harness == "command" && profile.Mode == "shared" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func commandRoleContract(role runner.Role, profile runner.Profile) error {
 	if strings.TrimSpace(role.Purpose) == "" || profile.Command == nil {
 		return errors.New("command roles need an explicit purpose and configured command")
