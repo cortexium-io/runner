@@ -416,6 +416,23 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		return Run{}, errors.New("task has no current role visit to retry")
 	}
 	goalGrant := !req.WithinBudget && req.ExtraAttempts > 0 && r.ID == root.ID
+	if req.Revision != 0 && (!goalGrant || req.Revision < 1 || req.Revision != c.outputRun(r).Revision) {
+		return Run{}, errors.New("root grant revision changed; inspect the current goal before retrying")
+	}
+	if taskDefinitionAmendment(req) {
+		if !goalGrant || req.Revision < 1 {
+			return Run{}, errors.New("definition amendment requires an explicit root aggregate grant and exact current revision")
+		}
+		_, family, reserved, err := c.graphFamily(r)
+		if err != nil || reserved != 0 {
+			return Run{}, errors.New("definition amendment requires a complete retained task family")
+		}
+		for _, member := range family {
+			if !c.graphOwnSettled(member) || !member.ResourcesReleased || member.CleanupBlocked || member.CleanupError != "" {
+				return Run{}, errors.New("definition amendment requires all family execution and cleanup to settle")
+			}
+		}
+	}
 	if req.Reason != "" && (!goalGrant || strings.TrimSpace(req.Reason) == "" || len(req.Reason) > 2048) {
 		return Run{}, errors.New("retry reason needs a root goal allowance grant and 1–2048 nonblank bytes")
 	}
@@ -441,19 +458,27 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		}
 		r.NextProfile = req.Profile
 	}
+	var definition []byte
+	var definitionRef *CardRecoveryArtifact
 	if goalGrant {
 		spent := c.familyAttempts(r)
 		if spent == invalidFamilyAttempts {
 			return Run{}, errors.New("goal allowance grant requires intact family ownership")
 		}
-		r.TaskGraph.AllowanceGrants = append(r.TaskGraph.AllowanceGrants, TaskAllowanceGrant{
+		grant := TaskAllowanceGrant{
 			RequestID:     req.RequestID,
 			PreviousLimit: r.Process.MaxAttempts,
 			Limit:         r.Process.MaxAttempts + req.ExtraAttempts,
 			Spent:         spent,
 			Reason:        taskAllowanceGrantReason(req),
 			GrantedAt:     time.Now().UTC(),
-		})
+		}
+		definition, err = applyTaskDefinitionAmendment(&r, req, &grant)
+		if err != nil {
+			return Run{}, err
+		}
+		definitionRef = grant.PreviousDefinition
+		r.TaskGraph.AllowanceGrants = append(r.TaskGraph.AllowanceGrants, grant)
 		r.Process.MaxAttempts += req.ExtraAttempts
 		if req.Directive != "" {
 			r.TaskGraph.Directive = req.Directive
@@ -500,8 +525,34 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
 		return Run{}, err
 	}
+	var artifacts []Artifact
+	if definitionRef != nil {
+		if err := c.readTaskDefinitionProofs(c.runs[r.ID]); err != nil {
+			return Run{}, err
+		}
+		if validator, ok := c.executor.(AssignmentValidator); ok {
+			profile := r.NextProfile
+			if profile == "" {
+				profile = r.Profiles[r.Process.Steps[r.Step].Role]
+			}
+			assignment, err := c.assignment(r, Attempt{ID: "attempt_" + strings.Repeat("A", 26), Step: r.Step, Visit: r.Visit, Profile: profile, Deadline: time.Now().UTC().Add(time.Minute)})
+			if err != nil {
+				return Run{}, err
+			}
+			if err := validator.ValidateAssignment(assignment); err != nil {
+				return Run{}, fmt.Errorf("amended role assignment: %w", err)
+			}
+		}
+		if err = c.writeTaskDefinitionProof(r, definitionRef, definition); err != nil {
+			return Run{}, err
+		}
+		artifacts = []Artifact{{ID: definitionRef.ID, RunID: r.ID, ProjectID: r.ProjectID, Bytes: definitionRef.Bytes}}
+	}
 	receipt := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
-	if err := c.persist(r, nil, &receipt); err != nil {
+	if err := c.persist(r, artifacts, &receipt); err != nil {
+		// A commit acknowledgment can fail after the transaction committed.
+		// Preserve this bounded content-addressed proof; a retry against the
+		// unchanged definition reuses it rather than creating another copy.
 		return Run{}, err
 	}
 	c.Wake()

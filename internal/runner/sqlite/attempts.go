@@ -107,7 +107,7 @@ func (s *Store) loadAttempts(ctx context.Context, tx *sql.Tx, r *runner.Run, cou
 		}
 		r.Attempts = attempts
 	}
-	return nil
+	return runner.RestoreTaskSpecifications(r)
 }
 
 func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, records [][]byte, previous []byte, handoffUpgrade bool) error {

@@ -24,14 +24,17 @@ type StartRequest struct {
 	Inputs    map[string]Value `json:"inputs"`
 }
 type RetryRequest struct {
-	RequestID     string `json:"request_id"`
-	RunID         string `json:"run_id"`
-	Profile       string `json:"profile,omitempty"`
-	ExtraAttempts int    `json:"extra_attempts,omitempty"`
-	CleanupOnly   bool   `json:"cleanup_only,omitempty"`
-	WithinBudget  bool   `json:"within_budget,omitempty"`
-	Reason        string `json:"reason,omitempty"`
-	Directive     string `json:"directive,omitempty"`
+	Revision         int64             `json:"revision,omitempty"`
+	RoleInstructions map[string]string `json:"role_instructions,omitempty"`
+	MaxTasks         int               `json:"max_tasks,omitempty"`
+	RequestID        string            `json:"request_id"`
+	RunID            string            `json:"run_id"`
+	Profile          string            `json:"profile,omitempty"`
+	ExtraAttempts    int               `json:"extra_attempts,omitempty"`
+	CleanupOnly      bool              `json:"cleanup_only,omitempty"`
+	WithinBudget     bool              `json:"within_budget,omitempty"`
+	Reason           string            `json:"reason,omitempty"`
+	Directive        string            `json:"directive,omitempty"`
 }
 type Summary struct {
 	AttemptBudget *TaskAttemptBudget `json:"attempt_budget,omitempty"`
@@ -100,6 +103,10 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 	}
 	c.executionUpdates = map[string]bool{}
 	for _, r := range saved {
+		if err := c.readTaskDefinitionProofs(r); err != nil {
+			cancel()
+			return nil, fmt.Errorf("restore task definition %s: %w", r.ID, err)
+		}
 		if r.SourceHandoff != nil && r.RecordFormat == 8 {
 			if _, err := c.readSourceHandoffProof(r); err != nil {
 				cancel()
@@ -399,6 +406,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	args, _ := json.Marshal(req)
+	if len(args) > int(c.disk.Policy.Database.MaxRecord) {
+		return Run{}, fmt.Errorf("%w: retry receipt exceeds max_record", ErrCapacity)
+	}
 	if r, ok, e := c.replay(req.RequestID, "retry", args); ok || e != nil {
 		if ok && r.TaskGraph != nil {
 			return c.outputRun(r), e
@@ -413,7 +423,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		return Run{}, err
 	}
 	r = Clone(r)
-	if (req.Reason != "" || req.Directive != "") && (r.TaskGraph == nil || req.CleanupOnly) {
+	if (req.Reason != "" || req.Directive != "" || req.Revision != 0 || req.RoleInstructions != nil || req.MaxTasks != 0) && (r.TaskGraph == nil || req.CleanupOnly) {
 		return Run{}, errors.New("retry reason and directive apply only to a root goal allowance grant")
 	}
 	if req.WithinBudget && (req.ExtraAttempts < 1 || req.CleanupOnly || r.Task != nil) {

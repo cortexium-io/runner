@@ -44,9 +44,10 @@ type TaskAction struct {
 }
 
 type RoleTaskLink struct {
-	Spec    RoleTask `json:"spec"`
-	RunID   string   `json:"run_id"`
-	Retired bool     `json:"retired,omitempty"`
+	Spec       RoleTask        `json:"spec"`
+	SpecSource *TaskSpecSource `json:"spec_source,omitempty"`
+	RunID      string          `json:"run_id"`
+	Retired    bool            `json:"retired,omitempty"`
 }
 
 type RoleTaskResult struct {

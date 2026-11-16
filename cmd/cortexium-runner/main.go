@@ -91,6 +91,8 @@ func run(ctx context.Context, args []string) error {
 	text := fs.String("text", "", "task steering directive, human answer or replacement directive with a root retry grant")
 	taskIDs := fs.String("task-ids", "", "JSON array of current failed child IDs for same-generation maintenance recovery")
 	maintenanceReason := fs.String("reason", "", "owner reason for a root goal allowance grant or same-generation maintenance recovery")
+	roleInstructionsFile := fs.String("role-instructions-file", "", "bounded JSON map of existing role IDs to owner-amended native instructions")
+	maxTasks := fs.Int("max-tasks", 0, "explicit amended root child-task ceiling with an owner allowance grant")
 	if e := fs.Parse(args[1:]); e != nil {
 		return e
 	}
@@ -117,6 +119,19 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *maintenanceReason != "" && command != "recover-tasks" && command != "retry" {
 		return errors.New("--reason requires recover-tasks or retry")
+	}
+	if (*roleInstructionsFile != "" || *maxTasks != 0) && (command != "retry" || *runID == "" || *revision < 1 || *extra <= 0 || *withinBudget || *cleanupOnly) {
+		return errors.New("role instruction and task allowance amendments require retry with exact --run/--revision and positive --extra-attempts, without --within-budget or --cleanup-only")
+	}
+	var roleInstructions map[string]string
+	if *roleInstructionsFile != "" {
+		data, err := readOwnerInput(*roleInstructionsFile, 40<<10, "role instructions")
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &roleInstructions); err != nil || len(roleInstructions) == 0 {
+			return errors.New("role instructions must be a nonempty JSON object mapping existing role IDs to instruction strings")
+		}
 	}
 	if command == "continue-task" {
 		allowed := map[string]bool{
@@ -311,14 +326,17 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_retry"
 		a = runner.RetryRequest{
-			RequestID:     *requestID,
-			RunID:         *runID,
-			Profile:       *profile,
-			ExtraAttempts: *extra,
-			WithinBudget:  *withinBudget,
-			CleanupOnly:   *cleanupOnly,
-			Reason:        *maintenanceReason,
-			Directive:     *text,
+			RequestID:        *requestID,
+			RunID:            *runID,
+			Profile:          *profile,
+			ExtraAttempts:    *extra,
+			WithinBudget:     *withinBudget,
+			CleanupOnly:      *cleanupOnly,
+			Reason:           *maintenanceReason,
+			Directive:        *text,
+			Revision:         *revision,
+			RoleInstructions: roleInstructions,
+			MaxTasks:         *maxTasks,
 		}
 	case "intervene":
 		if *runID == "" || *revision < 1 || *action == "" {
@@ -463,25 +481,28 @@ func run(ctx context.Context, args []string) error {
 }
 
 func readBrowserErrorReport(path string) ([]byte, error) {
-	const limit = 128 << 10
+	return readOwnerInput(path, 128<<10, "browser-error report")
+}
+
+func readOwnerInput(path string, limit int64, label string) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > limit {
-		return nil, errors.New("browser-error report must be a nonempty regular file without a symlink, at most 128KiB")
+		return nil, fmt.Errorf("%s must be a nonempty regular file without a symlink, at most %d bytes", label, limit)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open browser-error report: %w", err)
+		return nil, fmt.Errorf("open %s: %w", label, err)
 	}
 	defer file.Close()
 	opened, err := file.Stat()
 	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() {
-		return nil, errors.New("browser-error report changed while opening")
+		return nil, fmt.Errorf("%s changed while opening", label)
 	}
 	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	after, statErr := os.Lstat(path)
-	if err != nil || len(data) > limit || statErr != nil || !after.Mode().IsRegular() || !os.SameFile(info, after) ||
+	if err != nil || int64(len(data)) > limit || statErr != nil || !after.Mode().IsRegular() || !os.SameFile(info, after) ||
 		int64(len(data)) != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
-		return nil, errors.New("browser-error report changed, exceeded 128KiB or could not be read")
+		return nil, fmt.Errorf("%s changed, exceeded %d bytes or could not be read", label, limit)
 	}
 	return data, nil
 }

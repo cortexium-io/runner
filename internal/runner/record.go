@@ -47,6 +47,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	if err := taskRecoveryRecord(r); err != nil {
 		return nil, nil, err
 	}
+	if err := compactTaskSpecifications(&r); err != nil {
+		return nil, nil, err
+	}
 	var count *int
 	if r.RecordFormat >= 3 {
 		n := len(r.Attempts)

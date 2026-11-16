@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 11 {
+	if version < 0 || version > 12 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -204,6 +204,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Root owner grants amend the effective ceiling while preserving the
 		// original continuation authority. Older readers cannot interpret them.
 		if _, e = db.Exec("PRAGMA user_version=11"); e != nil {
+			return nil, e
+		}
+		version = 11
+	}
+	if version == 11 {
+		// Explicit definition amendments preserve prior guidance in artifacts.
+		// Older writers must not discard this authority or compact task specs.
+		if _, e = db.Exec("PRAGMA user_version=12"); e != nil {
 			return nil, e
 		}
 	}
@@ -313,7 +321,7 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if err := guardTaskRecoverySave(r, previous, recovery); err != nil {
 		return err
 	}
-	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, receipt); err != nil {
+	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, artifacts, receipt); err != nil {
 		return err
 	}
 	if errors.Is(e, sql.ErrNoRows) {
@@ -350,6 +358,11 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	add(r.Inputs)
 	add(r.Outputs)
 	if r.TaskGraph != nil {
+		for _, grant := range r.TaskGraph.AllowanceGrants {
+			if grant.PreviousDefinition != nil {
+				refs[grant.PreviousDefinition.ID] = true
+			}
+		}
 		if lineage := r.TaskGraph.Lineage; lineage != nil {
 			refs[lineage.Source.PatchID], refs[lineage.CheckID] = true, true
 		}

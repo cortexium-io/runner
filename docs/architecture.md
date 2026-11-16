@@ -54,13 +54,32 @@ the project. Legacy source cards retain their existing worktree and recovery
 contracts and cannot silently be selected as general-task executors.
 
 General records use format nine; normalized attempts remain individually bounded.
+Admitted task specifications are retained in their successful parent attempt.
+Operational child links store that attempt and task identity when the complete
+specification matches exactly; loading attempt rows restores the public task
+before scheduling, even if its child run has not yet materialized. Unmatched
+legacy specifications remain inline. This removes duplicate planning text while
+preserving every attempt and the existing state/definition limits.
+
+An explicit owner root retry can amend future native role instructions and raise
+the child-task ceiling alongside its aggregate allowance grant. It requires the
+observed family revision and complete execution/cleanup settlement. The same
+transaction preserves a hash-bound prior definition artifact, receipt, amended
+instruction identities and original spending. Historical children retain their
+own frozen roles; models, access, tool profiles, contracts and acceptance do not
+change. Ordinary saves cannot amend the catalog. Startup verifies the canonical
+definition proof and receipt chain; schema 12 excludes readers that ignore these
+contracts. A proof written before an uncertain commit remains retained for safe
+reconciliation.
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
 existing rows. Schema six adds the native allocation/release compatibility boundary.
 Schema seven adds recoverable output transport and primary-completion semantics.
 Old run formats retain their earlier bounds and old binaries refuse
-the new schema/format. Fresh qualification state is separate from the installed
-pilot; this work does not install a new default or migrate live state.
+the new schema/format. The initial general-role qualifications used separate
+state. The later retained Sudoku handoff and live amendments are separately
+owner-authorized installations recorded in the current process-core design;
+they do not change the default route for unrelated projects.
 
 `execution/native*.go` adds opt-in Codex/Claude CLI profiles through the existing
 executor service. It uses ephemeral native sessions, a durable dispatch claim,

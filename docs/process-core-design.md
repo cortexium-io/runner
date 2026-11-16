@@ -7,6 +7,36 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Live Sudoku workflow amendment, authorized 16 November 2026
+
+Continue the same retained root from 69 spent attempts. The owner explicitly
+authorized correcting its live role guidance and raising the allowance enough to
+finish. Extend the existing audited root retry transaction with exact presented
+revision, explicitly selected native role instruction replacements and an optional
+child-task ceiling increase. Preserve the complete prior frozen definition as one
+canonical immutable artifact. Ordinary saves cannot amend roles; the same owner
+receipt authenticates the prior definition, amended guidance and capacity. Keep
+all existing children/attempts/artifacts and the original continuation lineage;
+new visits and new children consume the amended root catalog.
+
+1. Qualify atomicity, stale/active/child rejection, rollback/replay/restart,
+   immutable definition proof and unchanged models/access/contracts/history.
+   Check actual retained record and complete-cycle admission before installation.
+2. Apply one same-root amendment to 128 aggregate attempts and 64 child tasks,
+   retaining 69 spent and every prior grant. Developer guidance permits focused
+   checks through the qualified helper and justified test-driver/expectation
+   repairs while preserving regression guarantees. The lead inspects completed
+   checker domain status and current-source evidence before admitting reviews;
+   failed collection/report completion alone is not readiness.
+3. Let Runner own necessary repair/check/assessment cycles, independent source
+   and actual image review, current-source functional/neighbor proof and a retained
+   inspectable preview. Fix demonstrated Runner failures with focused evidence,
+   retain failed proof and reuse valid unchanged evidence. No external product
+   worker, second scheduler, skipped gate, merge or deployment is introduced.
+4. Complete relevant regressions and Code Atlas review, record final source/run/
+   executable/evidence identities and actual usage, and clean owned temporary
+   outputs. Report emulated evidence separately from native/physical qualification.
+
 ### Retained Sudoku runtime handoff, authorized 15 November 2026
 
 The new Runner owns continuation of settled Sudoku root

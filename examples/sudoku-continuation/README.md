@@ -92,27 +92,45 @@ artifact. Reviewers also depend on import and receive its protected proof throug
 their task context. Every native role returns text only.
 
 After the actual reports arrive, the lead admits only necessary work whose
-dependencies and evidence are ready. Code edits require concrete product
-findings. Source review needs inspectable current source and authenticated
-frontend proof; visual review needs inspectable images and interaction evidence.
-Independent reviews can overlap when ready. A collector failure is not itself
-a product defect, and a blocked report cannot be reused as approval. New work
-uses stable unique IDs; there is no prescribed repair sequence or review pairing.
-Rechecks also depend on the original import; import is never repeated. Developer claims are only
+dependencies and evidence are ready. It reads delivered `check:text` and the
+current protected `summary.json` through existing native file tools before
+choosing work. A `Completed` checker whose domain status is failed or blocked
+has delivered diagnostic evidence; it has not established review readiness.
+Concrete product failures go to one developer for repair and focused validation,
+then the fixed checker. Known frontend/build failures precede final reviews.
+Source review can perform a targeted diagnostic audit when current source and
+actual failed evidence can resolve a concrete uncertainty; approval still needs
+authenticated frontend proof. Visual review needs actual current full viewport
+images and interaction evidence. An empty/test-only archive does not warrant a
+visual review. Independent reviews can overlap when their evidence is ready.
+A collector failure is not itself a product defect, and a blocked report cannot
+be reused as approval. New work uses stable unique IDs; there is no prescribed
+repair sequence or review pairing. Rechecks also depend on the original import;
+import is never repeated. Developer claims are only
 `frontend/src` and `docs/sudoku-interface.md`. Generated files, dependencies,
 configuration, other puzzles and existing proof are protected. Developers can run
-necessary focused tests through the qualified helper before returning, and update
-test drivers/expectations for approved behavior while preserving their guarantees.
+the smallest relevant focused tests through the qualified helper before returning.
+The developer resolves concrete scoped failures in the same ownership period and
+reruns affected tests when inputs change, without repeating unchanged passing
+checks. Approved interaction changes can require updating obsolete test drivers
+or expectations; the property each assertion protects must survive. Overflow,
+focus, progress and neighboring-game guarantees remain required. The developer
+retains a compact selection/count/status/failure summary before cleaning owned
+scratch and preserves shared dependencies.
 Fixed checks own independent acceptance testing/build/browser work; source and visual reviewers perform
 independent assessment without repeating tests. The original 393-pass proof is
 reused for the unchanged imported candidate; changed source gets fresh relevant
 frontend proof. The documented interface-note exception stays included in the
-whole-candidate source identity. Reviews are admitted after the relevant proof or
-images actually exist, rather than speculatively behind an unfinished checker.
+whole-candidate source identity. The lead selects the current checker and only
+relevant unresolved findings, rather than attaching the full historical report
+chain. Older failed/blocked reports remain diagnostic history. Reviews are
+admitted after the relevant proof or images actually exist, rather than
+speculatively behind an unfinished checker.
 The initial ceilings are twenty child slots and 64 attempts including the 36
 historical attempts; explicit owner grants change only the effective aggregate
-ceiling and are exposed alongside immutable lineage. Parent returns and
-retries consume the same remainder. Repeating a failure calls for reassessing
+ceiling and are exposed alongside immutable lineage. Current `task_context.policy`,
+`remaining_tasks` and `remaining_attempts` govern available capacity. Parent returns
+and retries consume the same remainder. Repeating a failure calls for reassessing
 the cause and approach within the agreement; the lead reserves capacity for the
 necessary correction and assessments rather than following a fixed cycle count.
 Source review owns source quality and authenticated frontend proof; the lead
@@ -126,6 +144,10 @@ high. The visual reviewer reads its three fixed skills directly and personally
 views the retained full viewport captures in owned scratch, then removes its
 extraction files. `runtime.json` records setup; Runner's retained provenance
 records actual harness/tool/skill exposure and use, usage and cleanup.
+Editing these generator contracts changes future configuration only. A retained
+run keeps its frozen role definitions until an authorized audited maintenance
+operation applies the reviewed instructions; updating a file does not amend a
+live run or dispatch another attempt.
 
 The prepared owner wire request is `requests/continue.json`, with stable
 `request_id: sudoku-native-preview-handoff-20261115-v1`. Main integration must

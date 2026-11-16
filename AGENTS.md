@@ -2,6 +2,19 @@
 
 ## Current authority and scope
 
+On 16 November Dan explicitly authorized correcting the live retained Sudoku
+workflow, preserving all work/evidence, and raising its allowance enough to finish
+without further stage coordination. Amend the same root through the existing
+audited owner path: preserve its original lineage, prior grants, spending, failed
+attempts and old-family freeze. Allow focused developer tests and legitimate
+test-driver/expectation updates, and admit independent review only after observing
+the required current evidence. Preserve old role definitions as canonical proof;
+use amended guidance only for future executions. A 128-attempt aggregate ceiling
+and 64-child task ceiling provide bounded complete-cycle capacity from 69 spent;
+models, access, concurrency, timeouts and acceptance remain unchanged. Necessary
+Runner maintenance and qualified installation are authorized. No merge, deployment,
+restoration or release-gate waiver is authorized.
+
 Dan subsequently approved raising the retained Sudoku continuation's ceiling from
 64 to 72, preserving all 63 spent attempts, work and evidence, and completing the
 repair/check/review cycle without further stage coordination. Record this as an

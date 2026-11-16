@@ -11,14 +11,20 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func storedTaskAllowance(t *testing.T) (*Store, runner.Run, runner.Run, *runner.Receipt) {
+func storedTaskAllowance(t *testing.T, roles ...runner.Role) (*Store, runner.Run, runner.Run, *runner.Receipt) {
 	t.Helper()
 	s, origin, root, family, continuation := storedTaskContinuation(t)
+	root.Process.MaxAttemptsPerStep = 4
+	if len(roles) != 0 {
+		root.Roles = map[string]runner.Role{}
+		for _, role := range roles {
+			root.Roles[role.ID] = role
+		}
+	}
 	if err := s.SaveTaskContinuation(t.Context(), origin, root, family, continuation); err != nil {
 		t.Fatal(err)
 	}
 	root.Status, root.ResourcesReleased, root.Revision = "Failed", true, 8
-	root.Process.MaxAttemptsPerStep = 4
 	root.VisitExtraAttempts = 1
 	root.TaskGraph.Directive = "Previous owner guidance"
 	root.Attempts = normalizedRun(27).Attempts
