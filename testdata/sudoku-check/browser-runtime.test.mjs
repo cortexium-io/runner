@@ -1,11 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-import {chromiumFocusDriver,paintedLockedDigitFacts,assertExhaustedHighlight} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {chromiumFocusDriver,paintedLockedDigitFacts,assertExhaustedHighlight,feedbackLayoutFacts,assertFeedbackLayout} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 // Opt-in, model-free qualification using the configured headless runtimes.
 // No application, source tree, server, persistent profile or network is used.
-test('configured browser focus and final-paint helpers',{
+test('configured browser focus, paint and play-header helpers',{
   skip:process.env.RUNNER_SUDOKU_BROWSER_RUNTIME!=='1',
   timeout:20000,
 },async t=>{
@@ -69,6 +69,41 @@ test('configured browser focus and final-paint helpers',{
           const after=await paintedLockedDigitFacts(digit);
           assert.equal(assertExhaustedHighlight(before,after,9).lime_retained,true);
           t.diagnostic(JSON.stringify({engine,pending,before,after}));
+        } finally {await context.close()}
+      });
+      await t.test(engine+' measures a right-side play-header group independently of its fitted board',async()=>{
+        const context=await browser.newContext({...contextOptions,viewport:{width:320,height:568}});
+        try {
+          const page=await context.newPage();
+          await page.setContent(`<style>
+            body{margin:0}.sudoku-play{width:304px;margin:8px}
+            .play-heading{box-sizing:border-box;width:304px;display:flex;align-items:center;border:2px solid;padding:4px}
+            .play-heading h1{margin:0;font-size:14px}.actions{display:flex;gap:6px;margin-left:auto}
+            .actions button{box-sizing:border-box;width:62px;height:32px}.actions button:last-child{width:70px}
+            .player-board-frame{width:280px;height:280px;margin:10px auto}.puzzle-board{height:100%}
+            .input-tools button{height:52px}button:disabled{pointer-events:none}
+          </style><main class="sudoku-play">
+            <header class="play-heading"><h1>Sudoku</h1><div class="actions"><button>Check</button><button>Restart</button></div></header>
+            <div class="player-board-frame"><div class="puzzle-board"></div></div>
+            <div class="input-tools"><button>Undo</button></div>
+          </main>`);
+          const facts=await page.evaluate(feedbackLayoutFacts),proof=assertFeedbackLayout(facts);
+          assert.equal(facts.header_content.x,14);assert.equal(facts.header_content.right,306);
+          assert.ok(proof.action_group.right>facts.frame.right+1,'fixture did not extend past the narrower fitted board');
+          const check=page.getByRole('button',{name:'Check',exact:true});
+          await check.evaluate(node=>{
+            const r=node.getBoundingClientRect(),cover=document.createElement('div');cover.id='owned-cover';
+            Object.assign(cover.style,{position:'fixed',left:r.x+'px',top:r.y+'px',width:r.width+'px',height:r.height+'px',zIndex:10});
+            document.body.append(cover);
+          });
+          const covered=await page.evaluate(feedbackLayoutFacts);
+          assert.throws(()=>assertFeedbackLayout(covered),error=>error.feedback_layout.actions[0].target.hit===false&&/target is covered/.test(error.message));
+          await page.locator('#owned-cover').evaluate(node=>node.remove());
+          await check.evaluate(node=>{node.disabled=true});
+          const disabled=await page.evaluate(feedbackLayoutFacts);
+          assert.equal(disabled.actions[0].target.hit,false);
+          assert.equal(assertFeedbackLayout(disabled).compact_right_board_actions,true);
+          t.diagnostic(JSON.stringify({engine,header_content:facts.header_content,board:facts.board,action_group:proof.action_group,covered_rejected:true,disabled_pointer_transparent_allowed:true}));
         } finally {await context.close()}
       });
     } finally {

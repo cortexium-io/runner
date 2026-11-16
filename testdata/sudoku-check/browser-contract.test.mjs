@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,recordFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -200,8 +200,9 @@ test('in-play New refuses absent or ambiguous actual controls',async()=>{
 
 function feedbackLayout(){return {
   board:{x:20,y:100,width:350,right:370},frame:{x:10,y:90,width:370,right:380},primary_height:60,
-  actions:[{label:'Check',count:1,rect:{x:220,y:50,width:70,height:32,right:290,bottom:82},font:14,inside_primary:false},
-    {label:'Restart',count:1,rect:{x:300,y:50,width:80,height:32,right:380,bottom:82},font:14,inside_primary:false}],
+  header:{x:10,y:40,width:370,height:50,right:380,bottom:90},header_count:1,header_content:{x:10,y:40,right:380,bottom:90},
+  actions:[{label:'Check',count:1,rect:{x:220,y:50,width:70,height:32,right:290,bottom:82},font:14,inside_primary:false,inside_header:true,target:{enabled:true,in_viewport:true,hit:true}},
+    {label:'Restart',count:1,rect:{x:300,y:50,width:80,height:32,right:380,bottom:82},font:14,inside_primary:false,inside_header:true,target:{enabled:true,in_viewport:true,hit:true}}],
   repeated_entry:false,more_actions:false,unlock_highlight:false,lock_prose:false,
 }}
 
@@ -212,8 +213,63 @@ test('owner-feedback acceptance requires removed UI and separate top-right secon
   }
   const below=feedbackLayout();below.actions[0].rect.bottom=110;assert.throws(()=>assertFeedbackLayout(below),/above the board/);
   const primary=feedbackLayout();primary.actions[1].inside_primary=true;assert.throws(()=>assertFeedbackLayout(primary),/separate compact/);
-  const left=feedbackLayout();left.actions[0].rect.x=20;assert.throws(()=>assertFeedbackLayout(left),/on the right/);
   const missing=feedbackLayout();missing.actions=[];assert.throws(()=>assertFeedbackLayout(missing),/measurements/);
+});
+
+test('right-side action grouping uses the play header rather than each button or the fitted board edge',()=>{
+  const fitted=feedbackLayout();
+  fitted.board=fitted.frame={x:10.890625,y:100,width:298.21875,right:309.109375};
+  fitted.header_content={x:8,y:40,right:312,bottom:90};
+  fitted.actions[0].rect={x:174,y:50,width:62,height:32,right:236,bottom:82};
+  fitted.actions[1].rect={x:242,y:50,width:70,height:32,right:312,bottom:82};
+  assert.equal(assertFeedbackLayout(fitted).action_group.right,312);
+  const crossing=feedbackLayout();
+  crossing.board=crossing.frame={x:10,y:100,width:300,right:310};
+  crossing.header_content={x:10,y:40,right:310,bottom:90};
+  crossing.actions[0].rect={x:140,y:50,width:80,height:32,right:220,bottom:82};
+  crossing.actions[1].rect={x:230,y:50,width:80,height:32,right:310,bottom:82};
+  assert.equal(assertFeedbackLayout(crossing).action_group.x,140);
+  const centered=feedbackLayout();
+  centered.actions[0].rect={x:120,y:50,width:70,height:32,right:190,bottom:82};
+  centered.actions[1].rect={x:190,y:50,width:80,height:32,right:270,bottom:82};
+  assert.throws(()=>assertFeedbackLayout(centered),/group is not on the right/);
+  const left=feedbackLayout();
+  for(const action of left.actions){action.rect.x-=180;action.rect.right-=180}
+  assert.throws(()=>assertFeedbackLayout(left),/group is not on the right/);
+});
+
+test('secondary action grouping rejects unrelated, clipped, overlapping, reversed or unusable targets',()=>{
+  const unrelated=feedbackLayout();unrelated.actions[0].inside_header=false;
+  assert.throws(()=>assertFeedbackLayout(unrelated),/outside the play header/);
+  const outside=feedbackLayout();outside.header_content.right=370;
+  assert.throws(()=>assertFeedbackLayout(outside),/outside the usable play header/);
+  const overlap=feedbackLayout();overlap.actions[1].rect.x=280;overlap.actions[1].rect.right=360;
+  assert.throws(()=>assertFeedbackLayout(overlap),/overlap or are out of order/);
+  const reversed=feedbackLayout();[reversed.actions[0].rect,reversed.actions[1].rect]=[reversed.actions[1].rect,reversed.actions[0].rect];
+  assert.throws(()=>assertFeedbackLayout(reversed),/overlap or are out of order/);
+  const wrapped=feedbackLayout();wrapped.board.y=180;wrapped.actions[1].rect.y=90;wrapped.actions[1].rect.bottom=122;
+  assert.throws(()=>assertFeedbackLayout(wrapped),/horizontal action row/);
+  const offscreen=feedbackLayout();offscreen.actions[0].target.in_viewport=false;
+  assert.throws(()=>assertFeedbackLayout(offscreen),/target is offscreen/);
+  const covered=feedbackLayout();covered.actions[0].target.hit=false;
+  assert.throws(()=>assertFeedbackLayout(covered),/target is covered/);
+  covered.actions[0].target.enabled=false;
+  assert.equal(assertFeedbackLayout(covered).compact_right_board_actions,true);
+});
+
+test('the shared failure recorder preserves measured layout and existing interaction facts on rejection only',()=>{
+  const facts=feedbackLayout();facts.header_content.right=370;
+  let failure;
+  try{assertFeedbackLayout(facts)}catch(error){failure=error}
+  const row={};recordFailure(row,failure);
+  assert.match(row.failure,/outside the usable play header/);
+  assert.deepEqual(row.feedback_layout.header_content,facts.header_content);
+  assert.deepEqual(row.feedback_layout.action_group,{x:220,y:50,right:380,bottom:82});
+  assert.deepEqual(row.feedback_layout.actions,facts.actions);
+  const interaction={phase:'hit-test',target:{hit:false}};
+  const pointer=Error('covered');pointer.interaction=interaction;
+  const pointerRow={};recordFailure(pointerRow,pointer);
+  assert.equal(pointerRow.interaction,interaction);assert.equal('feedback_layout' in pointerRow,false);
 });
 
 test('a locked completed digit must retain lime while visibly and semantically disabled',()=>{

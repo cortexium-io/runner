@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,paintedLockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,recordFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,paintedLockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
@@ -41,7 +41,7 @@ async function check(engine,id,action,{rows=report.journeys,failureStatus='faile
   rows.push(row);
   const previous=activeCase;activeCase=row;
   try {if(stopping)throw new Error('checker cancellation requested');row.proof=await action();row.status='passed';}
-  catch(error){row.status=failureStatus;row.failure=bounded(error);if(error.interaction)row.interaction=error.interaction;if(current&&!current.isClosed())await failedState(current,row,id)}
+  catch(error){row.status=failureStatus;recordFailure(row,error);if(current&&!current.isClosed())await failedState(current,row,id)}
   finally {activeCase=previous}
   await save();
   return row.status==='passed';
@@ -235,7 +235,7 @@ async function geometryCase(page,engine,viewport,phase,scheme,plannedImage) {
   const row={engine,viewport:viewport.id,width:viewport.width,height:viewport.height,touch:viewport.touch,phase,scheme,status:'failed'};
   report.geometry.push(row);
   try {await settle(page);row.metrics=await measure(page);row.proof=assertGeometry(row.metrics,viewport);row.owner_feedback=assertFeedbackLayout(await page.evaluate(feedbackLayoutFacts));report.owner_feedback.layout_observations++;row.status='passed'}
-  catch(error){row.failure=bounded(error.message);await failedState(page,row,'geometry',{planned:plannedImage})}
+  catch(error){recordFailure(row,error);await failedState(page,row,'geometry',{planned:plannedImage})}
   await save();
   return row;
 }

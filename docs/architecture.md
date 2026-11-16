@@ -75,6 +75,25 @@ the existing attempt control directory. This lets the Sudoku process authenticat
 its current accepted source and check current owner requirements without a new
 configuration for every follow-up. Preview roots partition by exact goal hash.
 
+Sudoku focus proof joins two evidence layers: browser-generated trusted blur/focus
+while the Chromium document remains visible, plus passing candidate-bound clock
+regressions from the protected frontend gate. The headless driver uses an owned
+same-context page with Chromium focus emulation disabled. Public Playwright WebKit
+keeps pages focused, so its browser-focus coverage is explicitly unsupported;
+this does not become a successful focus receipt. Other two-engine browser
+obligations remain. Browser capability limits flow into the compact summary.
+Digit-paint comparisons await actual completed CSS transitions, since stable
+geometry alone does not establish final color. Disposable runtime fixtures qualify
+these driver/paint boundaries without running product work outside Runner.
+
+Check/Restart placement is measured as a compact ordered group in the dedicated
+play header's usable content bounds. It must sit on the header's right side above
+the board, without overlap, offscreen targets or covered enabled targets. A Fit
+board may be narrower than its header; neither button must independently fit in
+the board's right half or match its exact edge. Failed geometry and journey rows
+retain the same measured layout facts before rejection, so correction does not
+depend on guessing from a short assertion message.
+
 Source tasks use one canonical project workspace. Absolute physical claims
 serialize overlapping writers and readers, including nested roots, existing
 symlink prefixes and case-insensitive host identity. Disjoint writers can overlap.

@@ -88,6 +88,16 @@ three actual visible focus cycles, failed-operation cleanup and completed-paint
 checks on both engines, with all owned contexts/browsers closed. It performs no
 product edits or product qualification outside Runner.
 
+The next protected check retained 441 passing frontend cases and actual trusted
+visible Chromium focus proof, but exposed another incorrect verifier abstraction:
+requiring each action box inside the right half of the exact Fit board. That can
+reject an ordinary right-aligned header group and accept overlapping buttons.
+Placement is therefore judged once for the ordered, non-overlapping group within
+the dedicated play header's usable bounds, with above-board, compactness,
+viewport and enabled-target hit tests retained. Failed rows preserve those facts.
+The current candidate is not accepted by this rule change: a fresh protected
+check and independent visual judgment remain required in the same linked root.
+
 ### Optional total-work limits, authorized 16 November 2026
 
 The owner explicitly chose to disable both aggregate execution and total

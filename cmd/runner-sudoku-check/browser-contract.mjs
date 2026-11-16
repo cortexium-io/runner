@@ -15,6 +15,11 @@ export function boundedFailure(error,limit=1400) {
   return String(error?.message??error??'').replace(/\u001b\[[0-9;]*m/g,'').slice(0,limit);
 }
 
+export function recordFailure(row,error) {
+  row.failure=boundedFailure(error);
+  for(const kind of ['interaction','feedback_layout'])if(error[kind])row[kind]=error[kind];
+}
+
 // Read-only facts describe the actual target and browser scroll state. Disabled
 // controls still have layout footprints; they are not executable actions.
 export function targetFacts(node) {
@@ -141,15 +146,27 @@ export function feedbackLayoutFacts() {
   const play=document.querySelector('.sudoku-play'),board=play?.querySelector('.puzzle-board');
   const rect=node=>{if(!node)return null;const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom}};
   const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility==='visible';
+  const headers=[...(play?.querySelectorAll('.play-heading')??[])].filter(visible),header=headers[0];
+  let headerContent;
+  if(header) {
+    const r=rect(header),style=getComputedStyle(header),px=property=>parseFloat(style[property])||0;
+    headerContent={x:r.x+px('borderLeftWidth')+px('paddingLeft'),y:r.y+px('borderTopWidth')+px('paddingTop'),
+      right:r.right-px('borderRightWidth')-px('paddingRight'),bottom:r.bottom-px('borderBottomWidth')-px('paddingBottom')};
+  }
   const buttons=[...(play?.querySelectorAll('button')??[])].filter(visible);
   const actions=['Check','Restart'].map(label=>{
     const found=buttons.filter(node=>(node.getAttribute('aria-label')??node.textContent).trim()===label);
-    return {label,count:found.length,rect:rect(found[0]),font:found[0]?parseFloat(getComputedStyle(found[0]).fontSize):0,
-      inside_primary:!!found[0]?.closest('.input-tools,.number-pad')};
+    const node=found[0],r=rect(node),x=r?r.x+r.width/2:0,y=r?r.y+r.height/2:0;
+    return {label,count:found.length,rect:r,font:node?parseFloat(getComputedStyle(node).fontSize):0,
+      inside_primary:!!node?.closest('.input-tools,.number-pad'),inside_header:!!node&&!!header?.contains(node),
+      target:node?{enabled:!node.matches(':disabled')&&node.getAttribute('aria-disabled')!=='true',
+        in_viewport:r.width>0&&r.height>0&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+        hit:node.contains(document.elementFromPoint(x,y))}:null};
   });
   const primary=[...(play?.querySelectorAll('.input-tools button')??[])].filter(visible).map(node=>node.getBoundingClientRect().height);
   const text=play?.textContent??'';
-  return {board:rect(board),frame:rect(board?.closest('.player-board-frame')),actions,primary_height:primary.length?Math.min(...primary):0,
+  return {board:rect(board),frame:rect(board?.closest('.player-board-frame')),header:rect(header),header_count:headers.length,header_content:headerContent,
+    actions,primary_height:primary.length?Math.min(...primary):0,
     repeated_entry:!!play?.querySelector('.pin-option')||/Repeated entry/i.test(play?.querySelector('.play-settings')?.textContent??''),
     more_actions:!!play?.querySelector('.more-puzzle-actions')||/More actions/i.test(text),
     unlock_highlight:buttons.some(node=>/Unlock highlight/i.test(node.textContent)),
@@ -157,19 +174,33 @@ export function feedbackLayoutFacts() {
 }
 
 export function assertFeedbackLayout(facts) {
-  for(const name of ['repeated_entry','more_actions','unlock_highlight','lock_prose'])assert.equal(facts[name],false,`removed Sudoku UI remains: ${name}`);
-  assert.ok(facts.board&&facts.frame,'actual board/frame are required for secondary-action geometry');
-  assert.deepEqual(facts.actions.map(action=>action.label),['Check','Restart'],'Check and Restart measurements are required');
-  for(const action of facts.actions) {
-    assert.equal(action.count,1,`one visible ${action.label} action is required`);
-    const r=action.rect;
-    assert.ok(r&&r.width>0&&r.height>0&&facts.primary_height>0&&r.height<=facts.primary_height+1&&!action.inside_primary,`${action.label} is not a separate compact secondary action`);
-    assert.ok(r.bottom<=facts.board.y+1,`${action.label} is not above the board`);
-    assert.ok(r.x>=facts.frame.x+facts.frame.width/2-1&&r.right<=facts.frame.right+1,`${action.label} is not on the right above the board`);
+  let group;
+  try {
+    for(const name of ['repeated_entry','more_actions','unlock_highlight','lock_prose'])assert.equal(facts[name],false,`removed Sudoku UI remains: ${name}`);
+    assert.ok(facts.board&&facts.frame,'actual board/frame are required for secondary-action geometry');
+    assert.ok(facts.header&&facts.header_count===1&&facts.header_content,'one actual play header is required for secondary-action placement');
+    assert.deepEqual(facts.actions.map(action=>action.label),['Check','Restart'],'Check and Restart measurements are required');
+    for(const action of facts.actions) {
+      assert.equal(action.count,1,`one visible ${action.label} action is required`);
+      const r=action.rect;
+      assert.ok(r&&r.width>0&&r.height>0&&facts.primary_height>0&&r.height<=facts.primary_height+1&&!action.inside_primary,`${action.label} is not a separate compact secondary action`);
+      assert.equal(action.inside_header,true,`${action.label} is outside the play header`);
+      assert.ok(r.bottom<=facts.board.y+1,`${action.label} is not above the board`);
+      assert.equal(action.target?.in_viewport,true,`${action.label} target is offscreen`);
+      if(action.target.enabled)assert.equal(action.target.hit,true,`${action.label} target is covered`);
+    }
+    const [check,restart]=facts.actions.map(action=>action.rect);
+    group={x:Math.min(check.x,restart.x),y:Math.min(check.y,restart.y),right:Math.max(check.right,restart.right),bottom:Math.max(check.bottom,restart.bottom)};
+    assert.ok(Math.max(check.y,restart.y)<Math.min(check.bottom,restart.bottom),'Check and Restart do not share a horizontal action row');
+    assert.ok(check.right<=restart.x,'Check and Restart overlap or are out of order');
+    const bounds=facts.header_content;
+    assert.ok(group.x>=bounds.x&&group.right<=bounds.right&&group.y>=bounds.y&&group.bottom<=bounds.bottom,'Check and Restart group is outside the usable play header');
+    assert.ok(bounds.right-group.right<group.x-bounds.x,'Check and Restart group is not on the right of the play header');
+    return {removed_controls_absent:true,compact_right_board_actions:true,...facts,action_group:group};
+  } catch(error) {
+    error.feedback_layout={...facts,...(group?{action_group:group}:{})};
+    throw error;
   }
-  const [check,restart]=facts.actions.map(action=>action.rect);
-  assert.ok(Math.max(check.y,restart.y)<Math.min(check.bottom,restart.bottom),'Check and Restart do not share a horizontal action row');
-  return {removed_controls_absent:true,compact_right_board_actions:true,...facts};
 }
 
 export function lockedDigitFacts(node) {
