@@ -240,6 +240,17 @@ cause. The diagnostic is retained as `maintenance/live-runner-cpu-sample.txt`.
 This is an unresolved scaling concern, not a qualified performance correction;
 the running service was not changed during the product check.
 
+The two subsequent fixed checks both reached their 20-minute execution deadlines
+and settled cleanly without final product reports. Read-only tracing found a
+separate diagnostic loss: `sharedCommandEvents` retains a bounded command result
+and diagnostic tail in the harness receipt, but `Native.Observe` collects that
+result only for a `returned` receipt. A settled `stopped` receipt follows the
+kind/reason-only path even when its final bytes exist. This explains the missing
+retained command tail, not the browser timeout's cause; a child may also have
+emitted no useful stage output. Any correction must preserve stopped/cancelled
+authority and settlement while making bounded failure facts available to the
+repair owner. No live observer change or product acceptance is established here.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then
