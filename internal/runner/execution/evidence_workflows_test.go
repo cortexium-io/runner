@@ -268,6 +268,11 @@ func TestModelFreeFixtureCompilerCacheKeepsFreshSourceResults(t *testing.T) {
 
 func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project), artifactLimit ...runner.Bytes) (*nativeRig, runner.Process, string) {
 	t.Helper()
+	return evidenceRigWithInstance(t, repo, file, measure, provider, script, configure, nil, artifactLimit...)
+}
+
+func evidenceRigWithInstance(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project), configureInstance func(*runner.Instance), artifactLimit ...runner.Bytes) (*nativeRig, runner.Process, string) {
+	t.Helper()
 	head := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	fixtureGit(t, repo, "init", "--bare", "--quiet", remote)
@@ -354,6 +359,9 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 	project.Processes, project.DefaultProcess, project.Source = map[string]runner.Process{p.ID: p}, p.ID, &runner.SourceSettings{Ref: head}
 	configure(&project)
 	cfg.Projects["demo"] = project
+	if configureInstance != nil {
+		configureInstance(&cfg.Instance)
+	}
 	operator := t.TempDir()
 	t.Setenv("RUNNER_RELEASE_FIXTURE_STATE", operator)
 	t.Setenv("RUNNER_RELEASE_FIXTURE_HEAD", head)

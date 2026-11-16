@@ -100,7 +100,7 @@ func governedSourceRecoveryJourney(t *testing.T, measure, provider string, prese
 			}
 		}
 	}
-	rig, _, operator := evidenceRig(t, repo, "retained-frontend.json", measure, provider, script, func(p *runner.Project) {
+	rig, _, operator := evidenceRigWithInstance(t, repo, "retained-frontend.json", measure, provider, script, func(p *runner.Project) {
 		// Freeze the old one-use policy, reproducing the actually exhausted run.
 		process := p.Processes[p.DefaultProcess]
 		for i := range process.Steps {
@@ -128,6 +128,12 @@ printf 'bounded assertion summary\n'` + fault}, Result: "domain.json", Artifact:
 		}
 		p.Roles["retain"] = runner.Role{ID: "retain", Inputs: map[string]string{}, Outputs: map[string]string{"patch": "artifact"}, Execution: &runner.Profile{Harness: "deterministic", Mode: "file", Output: "patch", Text: string(patch)}}
 		p.Processes["retain"] = runner.Process{ID: "retain", Inputs: map[string]string{}, Steps: []runner.Step{{ID: "retain", Role: "retain", Routes: map[string]runner.Route{"ready": {Next: "$fail"}}}}, MaxAttempts: 1, MaxAttemptsPerStep: 1, AttemptTimeout: "1m"}
+	}, func(instance *runner.Instance) {
+		// Only the release-reserve boundary case opts into a finite aggregate
+		// allowance. Ordinary journeys retain the default unlimited policy.
+		if extraReview {
+			instance.EnforceWorkLimits = true
+		}
 	})
 	defer rig.close()
 	old, err := rig.core.Start(runner.StartRequest{RequestID: "retained-fixture-source", Project: "demo", Process: "retain", Inputs: map[string]runner.Value{}})
