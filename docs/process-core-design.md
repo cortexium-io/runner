@@ -281,9 +281,29 @@ the migration changes no existing table row or definition.
 
 Focused race/vet checks and actual model-free Darwin command watchdog,
 cancellation, same-attempt reopen/release, SQLite fallback/restart and context
-budget proofs pass. Independent review has no remaining P1/P2. Broader workflow
-qualification and installation remain pending; historical lost diagnostics and
-Sudoku acceptance are not reconstructed by these proofs.
+budget proofs pass. Independent review has no remaining P1/P2. The complete
+model-free workflow gate also passes (execution 371.879 seconds). Code Atlas
+verified the exact comparison from
+`43d0d9e4b35e55ddb6b29d0cd5b134a92d2746f0` to
+`76d6bcddfa01df3f9462d0a596b38dcf6adfdf18`; its static context is not an
+acceptance verdict. Historical lost diagnostics and Sudoku acceptance are not
+reconstructed by these proofs.
+
+The qualified executable, SHA-256
+`8f9b951110bb33c46cfd5b5dbbeae23277ae9a674fee232b1aff61824a16660b`, was
+installed during a stable quiescent window. All 160 retained runs and every
+existing table row/schema-definition fingerprint were unchanged; only the
+compatibility marker moved from 15 to 16. The same instance configuration, model,
+permission and frozen role/process settings remain selected. Installation and
+qualification receipts are the intake's `maintenance/failure-diagnostic-*.json`.
+
+Normal failed-goal steering then returned the same Sudoku root to Runner with
+the capability update recorded. All 56 prior executions and every pre-existing
+attempt row remained byte-identical; no total-work allowance, timeout or profile
+changed. Runner assigned its next check itself. This is a second maintenance
+handoff, not an uninterrupted autonomous qualification. The original owner goal,
+product source, progress and passing/failed evidence remain retained; current
+product verification and independent approvals are still required.
 
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
