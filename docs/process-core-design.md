@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 15 November 2026. **The owner authorized implementing the general
+Updated 16 November 2026. **The owner authorized implementing the general
 roles-and-tasks design below, including real writing and a new Genny SaaS
 qualification. Existing pilot runs, their authority and limits remain unchanged.
 Merge, publication and production remain separately authorized actions.**
@@ -36,6 +36,47 @@ new visits and new children consume the amended root catalog.
 4. Complete relevant regressions and Code Atlas review, record final source/run/
    executable/evidence identities and actual usage, and clean owned temporary
    outputs. Report emulated evidence separately from native/physical qualification.
+
+Completed local-preview result: the same root
+`run_PFI3NBEMY4SOLNU6QCHPWFP5C5` finished at **88/128 aggregate attempts**, with
+25 child tasks, settled execution and no pending cleanup. The debit consists of
+36 historical executions, 23 lead visits and 29 child executions. Focused test
+commands inside a developer execution do not consume additional Runner attempts;
+attempt count is an execution-start guard, not a measure of elapsed work or cost.
+The owner amendment preserved the prior grants and frozen original family.
+
+The final source is
+`2c3fd219ae0f4f9a1a7d6d039d12edbcbb38c9fb973d9c4bc8f746abf38cd363`.
+Protected archive `attempt_FA5FP2OKFNEQHOWSYXPGIDBW7Q/result` has SHA-256
+`eb6c9624c4dd30c17c6dce5f9d8dd5839d550729fd58699a8bcead7fbdfba39a`.
+It passes 401 frontend tests, typechecking, five build stages, 146 geometry
+checks, 20 journeys and three neighboring-puzzle smokes. Independent source and
+visual reviewers approved that exact candidate; the visual reviewer inspected
+all 76 retained images. Five best-effort analytics HTTP 400 responses remain
+visible diagnostics, not evidence of healthy analytics ingestion.
+
+Live qualification required maintenance of ordinary hover actionability, both
+consumers of the relocated in-play New action, and the complete authored
+best-effort telemetry contract. Each correction has focused regressions and an
+exact-commit Atlas comparison. Recovery preserved source, failed proof, root
+identity and the existing 128 cap. This is a completed product outcome, **not a
+clean unattended-delivery qualification**: the coordinator still repaired the
+protected verifier and steered the same settled root. The relevant Core/SQLite,
+control, serialization and workflow suites passed; subsequent checker-only
+changes passed their owning contract suites. Atlas supplied structural evidence,
+not an automated clean-review verdict.
+
+The hash-verified accepted executable is retained under
+`/Users/dan/Projects/runner-qualifications/20261115/sudoku-handoff/delivery/preview/`.
+After completion, its documented operator started it on loopback port 8911 with
+an owned disposable SQLite database for inspection. `operator.json` records exact
+ownership and progress retention; protected test servers, browsers, databases
+and build scratch were cleaned before this separate preview start. Emulated
+Chromium/WebKit coverage does not establish native Safari, physical-device or
+accessibility qualification. Merge, production, restoration and legacy native
+release approval remain held. The canonical report retains usage, interventions,
+artifact identities, coverage limits and cleanup:
+`/Users/dan/Projects/runner-qualifications/20261115/sudoku-handoff/result.md`.
 
 ### Retained Sudoku runtime handoff, authorized 15 November 2026
 

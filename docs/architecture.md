@@ -81,6 +81,15 @@ state. The later retained Sudoku handoff and live amendments are separately
 owner-authorized installations recorded in the current process-core design;
 they do not change the default route for unrelated projects.
 
+The retained Sudoku continuation completed on 16 November at 88/128 aggregate
+attempts: 36 inherited executions, 23 lead visits and 29 child executions. Its
+25-child graph obtained fresh protected functional proof and independent source
+and image approvals for the same candidate. The completed goal leaves the old
+release family frozen and does not authorize merge or deployment. Qualification
+also required coordinator maintenance of the protected browser verifier, so this
+result does not establish unattended delivery. The [current completion record](process-core-design.md#live-sudoku-workflow-amendment-authorized-16-november-2026)
+links the exact source, proof, runtime and retained preview.
+
 `execution/native*.go` adds opt-in Codex/Claude CLI profiles through the existing
 executor service. It uses ephemeral native sessions, a durable dispatch claim,
 lease and bounded receipt. Available/permitted/observed tools are distinct facts.
