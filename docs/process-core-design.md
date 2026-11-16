@@ -55,6 +55,30 @@ fixed-command executor, store, artifact authority and cleanup lifecycle:
 Canonical intake, original owner screenshots, preflight and subsequent receipts:
 `/Users/dan/Projects/runner-qualifications/20261116/sudoku-followup/owner-feedback-1414-1437/`.
 
+The first maintenance batch, `5bd758398b769c9f492586a90cd41877135f7975`,
+passed the complete model-free race/workflow/vet gate (execution package
+951.254 seconds), focused source/configuration proofs and independent review.
+Cold installation preserved all 120 retained runs and every existing table and
+schema byte identity. The first linked intake,
+`run_ZCTAAMTU4HNXUZLCPXCCHAF6XB`, nevertheless stopped before any product
+writer: the exporter treated the upstream lineage commit as a local patch base,
+but the retained source is an authenticated materialized checkpoint. Its three
+spent executions, failure and immutable helper remain preserved. This is failed
+live qualification, not a completed product delivery.
+
+The corrected exporter always validates `initial_commit` and its exact
+`materialized_tree`, then diffs against that checkpoint. Upstream `source.base`
+remains lineage and the canonical accepted-report base; it is never a fallback
+checkout. Reconstruction tests now cover an absent upstream commit, advanced
+HEAD, included fixtures, and invalid checkpoint/tree rejection. The project
+preview grant is also process-owned rather than fixed to one request: the script
+partitions by exact goal hash and cannot alter other partitions. The trusted
+preview operator still owns post-acceptance consolidation under the standing
+retention policy; this profile is not a new cross-goal binary collector. Qualify
+and pin the replacement helper before a new normal linked intake. No Core change
+or repetition of unchanged full workflow checks is needed for this script/config
+repair, and no product source or prior evidence is reset.
+
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
 The owner requested seven corrections to the accepted Sudoku preview, then

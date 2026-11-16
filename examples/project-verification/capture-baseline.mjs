@@ -114,18 +114,22 @@ export async function captureBaseline(options,{signal}={}) {
   try {
     const inputs=await binding(options),handoff=await admission(options,path.join(work,'admission-before'),signal),base=handoff.source?.base;
     assert.match(base??'',/^[0-9a-f]{40}$/,'admitted handoff lacks its exact Git base');
-    assert.equal((await git(options.source,['rev-parse','--verify',base+'^{commit}'],signal)).toString().trim(),base,'baseline must bind an exact Git commit');
+    const checkpointCommit=handoff.initial_commit,checkpointTree=handoff.materialized_tree;
+    assert.match(checkpointCommit??'',/^[0-9a-f]{40}$/,'admitted handoff lacks its exact local checkpoint commit');
+    assert.match(checkpointTree??'',/^[0-9a-f]{40}$/,'admitted handoff lacks its materialized checkpoint tree');
+    assert.equal((await git(options.source,['rev-parse','--verify',checkpointCommit+'^{commit}'],signal)).toString().trim(),checkpointCommit,'baseline must bind the exact local checkpoint commit');
+    assert.equal((await git(options.source,['rev-parse','--verify',checkpointCommit+'^{tree}'],signal)).toString().trim(),checkpointTree,'local checkpoint tree differs from the authenticated materialized tree');
     const selection={exclude:[...new Set((handoff.source.exclude??'').split(',').filter(Boolean).map(relative))].sort(),
       include:[...new Set((handoff.source.include??'').split(',').filter(Boolean).map(relative))].sort()};
     for(const name of selection.include)assert.ok(!hardExcluded(name)&&selection.exclude.some(prefix=>name.startsWith(prefix+'/')),'admitted fixture exception must be an exact ordinary file inside excluded history');
     const staging=path.join(work,'capture');await mkdir(path.join(staging,'untracked'),{recursive:true});
-    const captured=await capture(options.source,base,selection,signal,staging);
-    const manifest={schema:1,status:'passed',kind:'accepted-source-baseline',base,...inputs,
+    const captured=await capture(options.source,checkpointCommit,selection,signal,staging);
+    const manifest={schema:1,status:'passed',kind:'accepted-source-baseline',base,checkpoint_commit:checkpointCommit,checkpoint_tree:checkpointTree,...inputs,
       source_manifest_sha256:captured.identity,
       source_manifest_scope:'ordinary-source-projection; accepted_source_sha256 is authenticated separately by admit-followup',
-      projection:{excluded_prefixes:selection.exclude,included_files:selection.include,restore:'checkout exact base; omit exclusions except exact included fixtures; apply source.patch; copy untracked/'},
+      projection:{excluded_prefixes:selection.exclude,included_files:selection.include,restore:'checkout checkpoint_commit and verify checkpoint_tree; omit exclusions except exact included fixtures; apply source.patch; copy untracked/; base retains upstream lineage only'},
       exclusions:{directories:ignoredDirectories,prefixes:ignoredPrefixes,files:['.runner-source-handoff.json','.DS_Store'],suffixes:['.log','.tsbuildinfo']},
-      patch:{path:'source.patch',sha256:sha(captured.patch),bytes:captured.patch.length},untracked_directory:'untracked',files:captured.files};
+      patch:{path:'source.patch',base_commit:checkpointCommit,base_tree:checkpointTree,sha256:sha(captured.patch),bytes:captured.patch.length},untracked_directory:'untracked',files:captured.files};
     const encoded=Buffer.from(JSON.stringify(manifest,null,2)+'\n');
     await writeFile(path.join(staging,'manifest.json'),encoded,{flag:'wx',mode:0o600});
     await writeFile(path.join(staging,'source.patch'),captured.patch,{flag:'wx',mode:0o600});
@@ -133,12 +137,12 @@ export async function captureBaseline(options,{signal}={}) {
     await command('/usr/bin/tar',['-czf',pending,'-C',staging,'manifest.json','source.patch','untracked'],options.scratch,signal);
     await chmod(pending,0o600);const archiveBytes=await bounded(pending,archiveLimit);
     await admission(options,path.join(work,'admission-after'),signal);
-    const after=await capture(options.source,base,selection,signal);
+    const after=await capture(options.source,checkpointCommit,selection,signal);
     assert.equal(after.identity,captured.identity,'source changed while its accepted baseline was captured');
     assert.deepEqual(await binding(options),inputs,'baseline admission inputs changed during capture');
     signal?.throwIfAborted();
     const result={outcome:'ready',reason:'Accepted source authenticated before and after read-only delta capture',
-      artifact:'baseline.tar.gz',sha256:sha(archiveBytes),bytes:archiveBytes.length,manifest_sha256:sha(encoded),base,...inputs,source_manifest_sha256:captured.identity};
+      artifact:'baseline.tar.gz',sha256:sha(archiveBytes),bytes:archiveBytes.length,manifest_sha256:sha(encoded),base,checkpoint_commit:checkpointCommit,checkpoint_tree:checkpointTree,...inputs,source_manifest_sha256:captured.identity};
     await link(pending,archive);published=true;
     const pendingDomain=path.join(work,'domain.json');await writeFile(pendingDomain,JSON.stringify({outcome:result.outcome,reason:result.reason})+'\n',{flag:'wx',mode:0o600});
     await link(pendingDomain,domain);ready=true;

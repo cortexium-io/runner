@@ -32,7 +32,7 @@ function argument(args,flag) {
   return absolute(args[index+1],flag);
 }
 
-export function correctionRuntime(parent,{capture,root,goalSHA256}) {
+export function correctionRuntime(parent,{capture,root}) {
   const {checker}=correctionFacts(parent),command=checker.command,env=command.env;
   const current=Boolean(parent.roles[names.check]);
   const previousPreview=current?absolute(env.RUNNER_SUDOKU_PREVIEW_ROOT,'accepted preview'):
@@ -48,7 +48,7 @@ export function correctionRuntime(parent,{capture,root,goalSHA256}) {
     modules:pin('MODULES','--modules'),playwright:pin('PLAYWRIGHT','--playwright'),chromium:pin('CHROMIUM','--chromium'),webkit:pin('WEBKIT','--webkit'),
     frontendHelper:absolute(env.RUNNER_SUDOKU_FRONTEND_HELPER,'frontend helper'),path:env.PATH,goCache:absolute(env.GOCACHE,'GOCACHE'),
     goModuleCache:absolute(env.GOMODCACHE,'GOMODCACHE'),opensslConf:absolute(env.OPENSSL_CONF,'OPENSSL_CONF'),runtimeWritePaths,
-    preview:path.join(root,'preview',goalSHA256)
+    preview:path.join(root,'preview')
   };
 }
 
@@ -81,7 +81,7 @@ export async function configureCorrections(values) {
   const accepted=goal.accepted_candidate;
   const workspace=await realpath(parent.repository);
   if(inside(workspace,root)||inside(root,workspace))throw new Error('staged configuration must not overlap the canonical product workspace');
-  const runtime=correctionRuntime(parent,{capture,root,goalSHA256:hash(goalBytes)});
+  const runtime=correctionRuntime(parent,{capture,root});
   for(const binary of [runtime.node,runtime.go,runtime.admission])await access(binary,constants.X_OK);
   const roles=correctionRoles(parent,runtime),process=correctionProcess(parent);
   let project,projectFile;

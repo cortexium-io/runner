@@ -38,8 +38,11 @@ are authored inside that future Runner task; none are supplied by this example.
 The fixed model-free role invokes pinned Node directly through qualified
 `command/shared/workspace-read`. Its script receives source, owned scratch, frozen
 goal, baseline and supplied evidence paths. Fixed environment supplies pinned
-Go/modules/Playwright/CFT/WebKit/frontend-helper paths and one new request-hash
-preview subtree. The script owns source/test/runtime identity, meaningful numbered
+Go/modules/Playwright/CFT/WebKit/frontend-helper paths and one isolated process-owned
+preview root. The script partitions stopped builds by the exact goal SHA, binding
+each manifest to source/test/goal/server/runtime identities and preserving other
+goal partitions. Ordinary later linked goals reuse this profile without config
+regeneration. The script owns source/test/runtime identity, meaningful numbered
 assertions, proportionate interactions/images, exact relevant-input proof reuse,
 stopped preview retention and finally cleanup. One bounded canonical archive is
 returned on success or failure. `domain.json` contains exactly `outcome` and `reason`;

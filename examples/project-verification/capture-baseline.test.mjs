@@ -23,13 +23,14 @@ async function fixture() {
   await file(source,'docs/evidence/old','old historical payload');
   await file(source,'docs/evidence/fixture.json','{"consumed":"before"}\n');
   await file(source,'.gitignore','node_modules/\nfrontend/dist/\n');await git(source,'add','.');await git(source,'commit','-qm','fixture base');
-  const base=(await git(source,'rev-parse','HEAD')).stdout.trim();
+  const checkpoint=(await git(source,'rev-parse','HEAD')).stdout.trim(),tree=(await git(source,'rev-parse','HEAD^{tree}')).stdout.trim(),base='f'.repeat(40);
   await file(source,'README.md','accepted after\n');await git(source,'rm','-q','deleted.txt');await chmod(path.join(source,'script.sh'),0o755);
   await file(source,'tracked.bin',Buffer.from([0,255,3,4,0]));
   await file(source,'docs/evidence/fixture.json','{"consumed":"accepted after"}\n');
   await file(source,'assets/new.bin',Buffer.from([0,255,10,8,0]));await file(source,'draft folder/note ü.md','ordinary untracked\n',0o755);
   await file(source,'node_modules/cache','must not retain dependency');await file(source,'frontend/dist/build','must not retain build');await file(source,'docs/evidence/old','must not retain evidence');
-  const handoff={phase:'ready',source:{base,exclude:'docs/evidence',include:'docs/evidence/fixture.json'}},handoffPath=path.join(root,'handoff.json');
+  await git(source,'add','-u');await git(source,'commit','-qm','accepted tracked changes after materialization');
+  const handoff={phase:'ready',initial_commit:checkpoint,materialized_tree:tree,source:{base,exclude:'docs/evidence',include:'docs/evidence/fixture.json'}},handoffPath=path.join(root,'handoff.json');
   await writeFile(handoffPath,JSON.stringify(handoff));await writeFile(path.join(source,'.runner-source-handoff.json'),JSON.stringify(handoff));
   const prior=path.join(root,'prior-check'),request=path.join(root,'goal.json'),control=path.join(root,'control.json'),admission=path.join(root,'admit');
   await writeFile(prior,'opaque authenticated artifact fixture');await writeFile(request,JSON.stringify({accepted_candidate:{source_sha256:'a'.repeat(64),check_sha256:'b'.repeat(64)}}));
@@ -49,15 +50,18 @@ if(state.mode==='mutate-admission'&&state.calls===2)await writeFile(process.argv
 await writeFile(args['--scratch']+'/handoff.json',await readFile(args['--accepted-handoff']));
 await writeFile(args['--scratch']+'/domain.json',JSON.stringify({outcome:state.mode==='not-ready'?'failed':'ready'}));
 `,0o755);
-  return {root,source,scratch,base,control,options:{source,scratch,admission,'accepted-check':prior,'accepted-handoff':handoffPath,request}};
+  return {root,source,scratch,base,checkpoint,tree,control,options:{source,scratch,admission,'accepted-check':prior,'accepted-handoff':handoffPath,request}};
 }
 
-test('accepted baseline reconstructs exact source bytes, deletion and executable modes from one delta artifact',async()=>{
+test('accepted baseline reconstructs from the authenticated local checkpoint when upstream is absent and HEAD has advanced',async()=>{
   const f=await fixture();
   try {
     const before=await git(f.source,'status','--porcelain=v1','--untracked-files=all');
+    await assert.rejects(git(f.source,'cat-file','-e',f.base+'^{commit}'),'fixture upstream base must be absent');
+    assert.notEqual((await git(f.source,'rev-parse','HEAD')).stdout.trim(),f.checkpoint);
     const result=await captureBaseline(f.options);
     assert.equal(result.outcome,'ready');assert.equal(result.base,f.base);
+    assert.equal(result.checkpoint_commit,f.checkpoint);assert.equal(result.checkpoint_tree,f.tree);
     assert.deepEqual(await readdir(f.scratch),['baseline.tar.gz','domain.json']);
     const domain=JSON.parse(await readFile(path.join(f.scratch,'domain.json')));
     assert.deepEqual(Object.keys(domain).sort(),['outcome','reason'],'fixed-command wire result contains unknown fields');
@@ -78,6 +82,9 @@ test('accepted baseline reconstructs exact source bytes, deletion and executable
     assert.equal(result.source_manifest_sha256,sha(JSON.stringify({patch:sha(patch),files:manifest.files})));
     for(const [field,input] of [['goal_sha256','request'],['handoff_sha256','accepted-handoff'],['accepted_check_sha256','accepted-check'],['admission_sha256','admission']])assert.equal(manifest[field],sha(await readFile(f.options[input])));
     assert.equal(manifest.accepted_source_sha256,'a'.repeat(64));assert.equal(manifest.base,f.base);
+    assert.equal(manifest.checkpoint_commit,f.checkpoint);assert.equal(manifest.checkpoint_tree,f.tree);
+    assert.equal(manifest.patch.base_commit,f.checkpoint);assert.equal(manifest.patch.base_tree,f.tree);
+    assert.match(manifest.projection.restore,/checkout checkpoint_commit/);
     assert.equal(manifest.files.filter(row=>row.kind==='untracked').length,2);
     assert.ok(!manifest.files.some(row=>/node_modules|frontend\/dist|runner-source-handoff/.test(row.path)));
     assert.deepEqual(manifest.files.filter(row=>row.path.startsWith('docs/evidence/')).map(row=>row.path),['docs/evidence/fixture.json']);
@@ -86,7 +93,8 @@ test('accepted baseline reconstructs exact source bytes, deletion and executable
     assert.match(manifest.source_manifest_scope,/authenticated separately/);
     const listing=(await exec('/usr/bin/tar',['-tzf',path.join(f.scratch,'baseline.tar.gz')])).stdout;
     assert.equal(listing.split('\n').filter(name=>name==='untracked/assets/new.bin').length,1,'untracked payload was duplicated');
-    await exec('/usr/bin/git',['clone','--quiet','--no-hardlinks',f.source,restored]);await git(restored,'checkout','-q',f.base);
+    await exec('/usr/bin/git',['clone','--quiet','--no-hardlinks',f.source,restored]);await git(restored,'checkout','-q',manifest.checkpoint_commit);
+    assert.equal((await git(restored,'rev-parse','HEAD^{tree}')).stdout.trim(),manifest.checkpoint_tree);
     // Restore the admitted projection, not the old excluded history still
     // reachable in the exact base's Git objects. Its imported fixture stays.
     await rm(path.join(restored,manifest.projection.excluded_prefixes[0],'old'));
@@ -115,6 +123,23 @@ test('failed admission or source/input mutation cannot publish ready or retain p
         ['mutate-input','mutate-handoff','mutate-admission'].includes(mode)?/inputs changed/.test(error.message):mode==='not-ready'?/did not return ready/.test(error.message):error.code===2);
       assert.equal(JSON.parse(await readFile(f.control)).calls,['fail','not-ready'].includes(mode)?1:2,mode+' did not reach its intended boundary');
       assert.deepEqual(await readdir(f.scratch),[],mode+' retained partial output');
+    } finally {await rm(f.root,{recursive:true,force:true})}
+  }
+});
+
+test('missing or mismatched authenticated checkpoints reject without falling back to existing upstream or HEAD',async()=>{
+  for(const mismatch of ['missing commit','different tree']) {
+    const f=await fixture();
+    try {
+      const handoff=JSON.parse(await readFile(f.options['accepted-handoff']));
+      handoff.source.base=f.checkpoint; // A valid upstream alternative must never be selected.
+      if(mismatch==='missing commit')handoff.initial_commit='e'.repeat(40);
+      else handoff.materialized_tree='d'.repeat(40);
+      await writeFile(f.options['accepted-handoff'],JSON.stringify(handoff));
+      await writeFile(path.join(f.source,'.runner-source-handoff.json'),JSON.stringify(handoff));
+      await assert.rejects(captureBaseline(f.options),error=>mismatch==='missing commit'?error.code===128:/checkpoint tree differs/.test(error.message));
+      assert.equal(JSON.parse(await readFile(f.control)).calls,1,'invalid checkpoint progressed beyond initial admission');
+      assert.deepEqual(await readdir(f.scratch),[],'invalid checkpoint published an artifact or ready result');
     } finally {await rm(f.root,{recursive:true,force:true})}
   }
 });

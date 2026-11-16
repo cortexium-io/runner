@@ -9,7 +9,7 @@ import {correctionFacts,correctionRoles,correctionProcess,names,processID,testEn
 
 test('correction route preserves native capabilities except explicit official-research network and separates ownership',()=>{
   const parent=parentFixture('/fixture',process.execPath),before=structuredClone(parent);
-  const runtime=correctionRuntime(parent,{capture:'/fixed/capture-baseline.mjs',root:'/new/staged',goalSHA256:'c'.repeat(64)});
+  const runtime=correctionRuntime(parent,{capture:'/fixed/capture-baseline.mjs',root:'/new/staged'});
   const roles=correctionRoles(parent,runtime),byID=Object.fromEntries(roles.map(role=>[role.id,role]));
   assert.deepEqual(parent,before);assert.equal(roles.length,8);
   for(const [oldID,next] of [['sudoku-lead',names.lead],['sudoku-developer',names.developer],['sudoku-developer',names.author],['sudoku-source-review',names.source],['sudoku-ux-review',names.visual]]) {
@@ -25,7 +25,7 @@ test('correction route preserves native capabilities except explicit official-re
   assert.deepEqual(checker.command.args,[process.execPath,'{workspace}/'+testEntry,'--source','{workspace}','--scratch','{scratch}','--goal','{goal}',
     '--baseline','{dependency.baseline.artifact}','--prior','{artifact.prior}','--checks','{artifact.checks}']);
   assert.equal(checker.command.result,'domain.json');assert.equal(checker.command.artifact,'evidence.tar.gz');
-  assert.equal(checker.command.env.RUNNER_SUDOKU_PREVIEW_ROOT,'/new/staged/preview/'+'c'.repeat(64));
+  assert.equal(checker.command.env.RUNNER_SUDOKU_PREVIEW_ROOT,'/new/staged/preview');
   assert.deepEqual(checker.command.runtime_write_paths,['/fixture/cache',runtime.preview]);
   assert.equal(byID[names.baseline].execution.command.artifact,'baseline.tar.gz');
   assert.equal(byID[names.baseline].execution.command.network,false);
@@ -39,7 +39,8 @@ test('correction route preserves native capabilities except explicit official-re
   const author=byID[names.author].execution.instructions;
   for(const contract of ['domain.json contains EXACTLY outcome and reason','source_files exact sorted Go fileProof','<=88 entries/84 PNGs',
     'no directory headers, ./ prefixes, symlinks or duplicate names','RUNNER_SUDOKU_ADMISSION --mode admit-followup',
-    'OMIT --request','archive bytes UNCHANGED','domain.reason records probe passed and archive SHA','emulated boundary evidence'])
+    'OMIT --request','archive bytes UNCHANGED','domain.reason records probe passed and archive SHA','emulated boundary evidence',
+    'PREVIEW_ROOT/<SHA256 of exact --goal bytes>','never alter another goal partition','original upstream base, not the local checkpoint'])
     assert.ok(author.includes(contract),'missing fixed-command/source-admission contract: '+contract);
   assert.equal(checker.command.env.RUNNER_SUDOKU_ADMISSION,runtime.admission);
   for(const role of roles) {
@@ -56,13 +57,15 @@ test('correction route preserves native capabilities except explicit official-re
 
 test('accepted correction parents retain pinned capabilities and admit a different nonempty correction set',()=>{
   const historical=parentFixture('/fixture',process.execPath);
-  const firstRuntime=correctionRuntime(historical,{capture:'/fixed/capture-baseline.mjs',root:'/first',goalSHA256:'c'.repeat(64)});
+  const firstRuntime=correctionRuntime(historical,{capture:'/fixed/capture-baseline.mjs',root:'/first'});
   const parent={...structuredClone(historical),id:'run_new_correction_parent',revision:19,
     roles:Object.fromEntries(correctionRoles(historical,firstRuntime).map(role=>[role.id,role])),process:correctionProcess(historical)};
   parent.task_graph.root_run_id=parent.id;
   const before=structuredClone(parent);
-  const nextRuntime=correctionRuntime(parent,{capture:firstRuntime.capture,root:'/next',goalSHA256:'d'.repeat(64)});
+  const nextRuntime=correctionRuntime(parent,{capture:firstRuntime.capture,root:'/next'});
   assert.deepEqual({...nextRuntime,preview:firstRuntime.preview},firstRuntime);
+  assert.deepEqual(correctionRuntime(parent,{capture:firstRuntime.capture,root:'/first'}),firstRuntime,
+    'ordinary next goals must reuse the process preview grant without regenerating configuration');
   assert.deepEqual(correctionFacts(parent).nativeRoles,Object.fromEntries(['lead','developer','source','visual'].map(kind=>[kind,names[kind]])));
   const nextRoles=correctionRoles(parent,nextRuntime),nextProcess=correctionProcess(parent);
   assert.equal(nextRoles.length,8);assert.deepEqual(nextProcess,parent.process);
@@ -77,7 +80,7 @@ test('accepted correction parents retain pinned capabilities and admit a differe
   for(const corrections of [[],[goal.corrections[0],goal.corrections[0]],[{id:'',requirement:'required'}],[{id:'X',requirement:''}],[{id:'X'}]])
     assert.throws(()=>validateCorrectionGoal({...goal,corrections},parent),/correction|require/);
   const broken=structuredClone(parent);delete broken.roles[names.check].execution.command.env.RUNNER_SUDOKU_CHROMIUM;
-  assert.throws(()=>correctionRuntime(broken,{capture:firstRuntime.capture,root:'/next',goalSHA256:'d'.repeat(64)}),/CHROMIUM requires an absolute path/);
+  assert.throws(()=>correctionRuntime(broken,{capture:firstRuntime.capture,root:'/next'}),/CHROMIUM requires an absolute path/);
   assert.deepEqual(parent,before);
 });
 
@@ -103,7 +106,7 @@ test('staging preserves prior routes/source and records linked intake without di
     const request=JSON.parse(await readFile(staged.request));
     assert.deepEqual(request.followup,{run_id:parent.id,revision:parent.revision});
     assert.equal(request.inputs.request,JSON.stringify(goal));assert.equal(request.artifacts.prior,goal.accepted_candidate.check_artifact);
-    assert.equal(staged.preview,path.join(root,'staged','preview',staged.goal.sha256));
+    assert.equal(staged.preview,path.join(root,'staged','preview'));
     assert.deepEqual(JSON.parse(await readFile(root+'/project.json')),oldProject);
     assert.deepEqual(JSON.parse(await readFile(root+'/instance.json')),instance);
     assert.equal(await readFile(root+'/parent.json','utf8'),JSON.stringify(parent));
