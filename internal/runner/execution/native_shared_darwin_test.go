@@ -53,6 +53,30 @@ exit 1`, "shared-check", "{workspace}", filepath.Join(d.Root, "work", "private-s
 	}
 }
 
+func TestHarnessSharedCommandReadsImmutableAuthoritativeGoal(t *testing.T) {
+	d := workspaceDisk(t)
+	a := sharedCommandAssignment(t)
+	a.TaskContext.Goal = `{"request":"Use the complete owner goal"}`
+	a.Setup.Profile.Command = &runner.Command{
+		Args: []string{"/bin/sh", "-c", `set -eu
+test "$1" = "$OWNER_GOAL_PATH"
+test "$(cat "$1")" = "$EXPECTED_OWNER_GOAL"
+if printf rewritten >> "$1" 2>/dev/null; then exit 91; fi
+if chmod u+w "$1" 2>/dev/null; then exit 92; fi
+printf 'read exact owner goal\n' > "$2/evidence.txt"
+`, "goal-reader", "{goal}", "{scratch}"},
+		Env: map[string]string{
+			"OWNER_GOAL_PATH":     "{goal}",
+			"EXPECTED_OWNER_GOAL": a.TaskContext.Goal,
+		},
+		Artifact: "evidence.txt",
+	}
+	runSharedCommandProof(t, d, a)
+	if _, err := os.Stat(filepath.Join(d.Root, harnessControl(a.AttemptID), "goal.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("settled command retained its disposable goal input", err)
+	}
+}
+
 func TestHarnessSharedWriterRequiresClaimsAndPreservesCoordinatorBoundary(t *testing.T) {
 	d := workspaceDisk(t)
 	a := sharedCommandAssignment(t)

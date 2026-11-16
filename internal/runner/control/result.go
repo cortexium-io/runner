@@ -20,22 +20,23 @@ type ResultArgs struct {
 // Full setup, inputs and attempt history remain available through inspect.
 type Result struct {
 	runner.Summary
-	ElapsedSeconds    float64             `json:"elapsed_seconds"`
-	ExecutionSettled  bool                `json:"execution_settled"`
-	CleanupPending    bool                `json:"cleanup_pending"`
-	CleanupError      string              `json:"cleanup_error,omitempty"`
-	CleanupBlocked    bool                `json:"cleanup_blocked,omitempty"`
-	Reconciling       bool                `json:"reconciling,omitempty"`
-	WorkspaceRetained bool                `json:"workspace_retained"`
-	Usage             Usage               `json:"usage"`
-	Outputs           map[string]Output   `json:"outputs,omitempty"`
-	Candidate         *Candidate          `json:"candidate,omitempty"`
-	Decision          *runner.Decision    `json:"decision,omitempty"`
-	DecisionOutputs   map[string]Output   `json:"decision_outputs,omitempty"`
-	Tasks             []runner.TaskStatus `json:"tasks,omitempty"`
-	TaskCount         int                 `json:"task_count,omitempty"`
-	TasksTruncated    bool                `json:"tasks_truncated,omitempty"`
-	TaskGraph         *TaskGraph          `json:"task_graph,omitempty"`
+	Followup          *runner.TaskFollowupLineage `json:"followup,omitempty"`
+	ElapsedSeconds    float64                     `json:"elapsed_seconds"`
+	ExecutionSettled  bool                        `json:"execution_settled"`
+	CleanupPending    bool                        `json:"cleanup_pending"`
+	CleanupError      string                      `json:"cleanup_error,omitempty"`
+	CleanupBlocked    bool                        `json:"cleanup_blocked,omitempty"`
+	Reconciling       bool                        `json:"reconciling,omitempty"`
+	WorkspaceRetained bool                        `json:"workspace_retained"`
+	Usage             Usage                       `json:"usage"`
+	Outputs           map[string]Output           `json:"outputs,omitempty"`
+	Candidate         *Candidate                  `json:"candidate,omitempty"`
+	Decision          *runner.Decision            `json:"decision,omitempty"`
+	DecisionOutputs   map[string]Output           `json:"decision_outputs,omitempty"`
+	Tasks             []runner.TaskStatus         `json:"tasks,omitempty"`
+	TaskCount         int                         `json:"task_count,omitempty"`
+	TasksTruncated    bool                        `json:"tasks_truncated,omitempty"`
+	TaskGraph         *TaskGraph                  `json:"task_graph,omitempty"`
 }
 
 // TaskGraph exposes coordination facts without copying child reports, original
@@ -164,6 +165,7 @@ func pendingTaskProgress(r runner.Run) bool {
 func compactResult(r runner.Run, now time.Time) Result {
 	out := Result{
 		Summary:          runner.Summarize(r, now),
+		Followup:         runner.Clone(r.Followup),
 		ExecutionSettled: true,
 		CleanupError:     runner.Clip(r.CleanupError),
 		CleanupBlocked:   r.CleanupBlocked,

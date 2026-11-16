@@ -58,6 +58,23 @@ schema 13 removes hidden normalized attempt-count/position ceilings while retain
 record and database byte limits. [Installation qualification](process-core-design.md#optional-total-work-limits-authorized-16-november-2026)
 records all 115 retained runs and unchanged row identities/bytes.
 
+Normal Start/Run also accepts an exact-revision completed-parent follow-up. It
+admits a new configured goal in the same project/workspace, retaining immutable
+parent lineage and selected input-artifact authority rather than reopening the
+accepted result or copying its history. SQL revalidates the complete settled
+parent family in the insertion transaction; schema 14 indexes root/follow-up
+references and protects every parent-family member from premature collection.
+Lost start acknowledgements recover the same pristine durable root through its
+receipt. Context, inspect and compact results expose the parent link.
+
+Shared fixed commands can select `{goal}` as one whole argv/environment value.
+The adapter retains only the requested authoritative goal, stages it in an owned
+read-only file and grants only that exact file read inside coordinator state.
+It checks immutable bytes/permissions before execution and releases the file with
+the existing attempt control directory. This lets the Sudoku process authenticate
+its current accepted source and check current owner requirements without a new
+configuration for every follow-up. Preview roots partition by exact goal hash.
+
 Source tasks use one canonical project workspace. Absolute physical claims
 serialize overlapping writers and readers, including nested roots, existing
 symlink prefixes and case-insensitive host identity. Disjoint writers can overlap.

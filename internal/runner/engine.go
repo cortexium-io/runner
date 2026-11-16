@@ -17,11 +17,12 @@ import (
 )
 
 type StartRequest struct {
-	SourceRef string           `json:"source_ref,omitempty"`
-	RequestID string           `json:"request_id"`
-	Project   string           `json:"project"`
-	Process   string           `json:"process,omitempty"`
-	Inputs    map[string]Value `json:"inputs"`
+	Followup  *TaskFollowupRequest `json:"followup,omitempty"`
+	SourceRef string               `json:"source_ref,omitempty"`
+	RequestID string               `json:"request_id"`
+	Project   string               `json:"project"`
+	Process   string               `json:"process,omitempty"`
+	Inputs    map[string]Value     `json:"inputs"`
 }
 type RetryRequest struct {
 	Revision         int64             `json:"revision,omitempty"`
@@ -135,6 +136,10 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 		cancel()
 		return nil, err
 	}
+	if err := c.validateTaskFollowupLinks(); err != nil {
+		cancel()
+		return nil, err
+	}
 	go c.loop()
 	c.Wake()
 	return c, nil
@@ -190,7 +195,17 @@ func (c *Core) replay(key, kind string, args []byte) (Run, bool, error) {
 	if old.Kind != kind || !bytes.Equal(old.Args, args) {
 		return Run{}, false, errors.New("request_id already belongs to a different operation")
 	}
-	return Clone(c.runs[old.RunID]), true, nil
+	r, known := c.runs[old.RunID]
+	if !known {
+		if kind != "start" {
+			return Run{}, false, errors.New("saved request target is not loaded; reopen the same state before retrying")
+		}
+		r, e = c.restoreStartedRun(old)
+		if e != nil {
+			return Run{}, false, e
+		}
+	}
+	return Clone(r), true, nil
 }
 func (c *Core) Start(req StartRequest) (Run, error) {
 	c.mu.Lock()
@@ -199,13 +214,16 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if r, ok, e := c.replay(req.RequestID, "start", args); ok || e != nil {
 		return r, e
 	}
+	if req.Followup != nil {
+		return c.startTaskFollowup(req, args)
+	}
 	r, e := c.newRun(req, nil)
 	if e != nil {
 		return Run{}, e
 	}
 	rec := Receipt{Key: req.RequestID, Kind: "start", Args: args, RunID: r.ID}
 	if e = c.persist(r, nil, &rec); e != nil {
-		return Run{}, e
+		return c.reconcileStartFailure(req, args, e)
 	}
 	c.Wake()
 	return Clone(c.runs[r.ID]), nil

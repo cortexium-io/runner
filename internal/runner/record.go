@@ -47,6 +47,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	if err := taskRecoveryRecord(r); err != nil {
 		return nil, nil, err
 	}
+	if err := taskFollowupRecord(r); err != nil {
+		return nil, nil, err
+	}
 	if err := compactTaskSpecifications(&r); err != nil {
 		return nil, nil, err
 	}
@@ -112,6 +115,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 		return r, err
 	}
 	if err := taskRecoveryRecord(r); err != nil {
+		return r, err
+	}
+	if err := taskFollowupRecord(r); err != nil {
 		return r, err
 	}
 	return r, nil

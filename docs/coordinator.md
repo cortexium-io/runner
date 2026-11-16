@@ -4,6 +4,31 @@ Runner owns the configured delivery process. An external chat owns understanding
 the user's intent, submitting authorized work and reporting results or decisions.
 It must not become a second worker or scheduler when something fails.
 
+## Follow-up on an accepted general task
+
+Use normal `runner_run` or `runner_start` with optional
+`followup: {run_id: "COMPLETED_ROOT", revision: OBSERVED_FAMILY_REVISION}` and a
+configured follow-up process. CLI Start/Run accepts `--followup-run` and
+`--followup-revision`. Supply the new complete request and declared artifact inputs;
+reuse the stable request ID after an uncertain response. Rejoin the new run's
+result. The parent stays Completed; its history is referenced rather than copied.
+
+Admission authenticates an exact completed, settled general root in the same
+project/canonical workspace. The linked parent's authenticated input-artifact
+authority may carry forward, including earlier retained imports; unrelated foreign
+artifacts remain unavailable. Models cannot select a new executor or bypass
+configured permissions through the link. The immutable lineage is visible in
+inspect, result and task context, and prevents collection of its referenced parent.
+
+Source acceptance belongs to the owning process. The Sudoku follow-up begins
+with a fixed read-only admission of its hash-bound accepted check, exact current
+source inventory and existing handoff. It forwards only the small ownership
+receipt, preserving the canonical workspace. Current owner corrections supersede
+conflicting earlier design details; all other original acceptance remains. Product
+development/check/review and any repair stay inside Runner. A stale source does
+not authorize overwriting it with a snapshot, and a historical acceptance does
+not approve the new goal. Publication/release authority does not transfer.
+
 ## Optional total-work limits
 
 Aggregate attempt and total task-count enforcement is opt-in instance policy:

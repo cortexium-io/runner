@@ -34,6 +34,7 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		Neighbors     []browserCase     `json:"neighbors"`
 		Prerequisites []browserCase     `json:"prerequisites"`
 		Screenshots   []json.RawMessage `json:"screenshots"`
+		OwnerFeedback map[string]any    `json:"owner_feedback"`
 		Coverage      struct {
 			Complete         bool `json:"complete"`
 			RequiredEngines  int  `json:"required_engines"`
@@ -95,6 +96,9 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		"images": len(browser.Screenshots), "errors": len(browser.Errors), "diagnostics": len(browser.Diagnostics), "failure_groups": groups,
 		"prerequisites": prerequisites, "unrun": unrun, "coverage": browser.Coverage,
 	}
+	if browser.OwnerFeedback != nil {
+		p.Browser["owner_feedback"] = browser.OwnerFeedback
+	}
 	var neighborFailures []map[string]string
 	for _, row := range browser.Neighbors {
 		if row.Status != "passed" {
@@ -136,6 +140,8 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		p.Status, p.Failure = "blocked", "browser collection is incomplete; "+p.Failure
 	} else if browser.Status == "passed" && (!browser.Coverage.Complete || len(browser.Unrun) != 0) {
 		p.Status, p.Failure = "blocked", "browser pass lacks the complete fixed coverage"
+	} else if browser.Status == "passed" && browser.OwnerFeedback != nil && browser.OwnerFeedback["complete"] != true {
+		p.Status, p.Failure = "blocked", "browser pass lacks the complete current owner-feedback proof"
 	}
 	if executionErr != nil {
 		p.Status, p.Failure = "blocked", "browser command did not finish normally: "+clip(executionErr.Error(), 750)+"; "+p.Failure
@@ -222,7 +228,7 @@ func archiveEvidence(directory, target string, limit int64) (err error) {
 	if err != nil {
 		return err
 	}
-	if len(entries) < 1 || len(entries) > 84 {
+	if len(entries) < 1 || len(entries) > 88 {
 		return errors.New("evidence file count exceeds its fixed contract")
 	}
 	var total int64

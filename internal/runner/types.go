@@ -503,6 +503,7 @@ func (a Attempt) Recovering(now time.Time) bool {
 }
 
 type Run struct {
+	Followup                  *TaskFollowupLineage       `json:"followup,omitempty"`
 	ContinuedBy               *TaskContinuationAudit     `json:"continued_by,omitempty"`
 	TaskBudget                *TaskAttemptBudget         `json:"-"`
 	TaskGraph                 *TaskGraphState            `json:"task_graph,omitempty"`

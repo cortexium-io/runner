@@ -37,17 +37,51 @@ pointer events. The real entry/Undo/Redo journeys exercise their enabled state.
 History is tested before reload; the authored reload contract persists progress
 and starts fresh history. Home continuation binds the exact admitted board and
 accepts the authored “Open to check” action when a discovered save is unloaded.
-In-play New puzzle uses one shared driver: use its visible heading affordance or
-open More actions and activate its scoped secondary button. Completion-dialog
+In-play New puzzle uses one shared driver: use its visible heading/standalone
+affordance or open Options and activate its scoped button. Completion-dialog
 actions remain separate. The same trusted activation and visibility/disabled/
 coverage checks apply to either affordance.
 
 Actions and resizes retain bounded before/after viewport, scroll, geometry,
 selection and focus facts. Resize setup does not force cell focus or reset page
 scroll after Options. Failure images are captured before the owning context closes;
-the 76 planned images leave four diagnostic slots within the existing 80-image
+the 80 planned images leave four diagnostic slots within the 84-image
 limit. Repeated geometry failures identify a representative image and retain each
 failed state's own metrics; omitted images are explicit, never passing evidence.
+
+The 16 November owner-feedback contract extends the existing 20 journeys and
+146 geometry observations. Repeated entry in Options, More actions, Unlock
+highlight and lock explanation prose must be absent. Check/Restart share a
+separate row above the board on its right; their secondary geometry is measured
+relative to the real primary controls rather than a new fixed target-size gate.
+Both completion journeys lock a digit through trusted Shift+digit input, enter
+all nine copies, and verify disabled semantics/appearance while retaining its
+actual lime highlight. Phone hints retain explanation/apply/Undo coverage and
+desktop hints must expose actual nonempty explanation content. Four added images
+show the exhausted locked phone control and working desktop hint in each engine.
+
+Focus-clock evidence uses a controlled Playwright clock and an owned headless
+Chromium window target or WebKit page. It records actual document focus,
+visibility and trusted blur events, checks background time is never charged on
+return, and preserves manual pause and Show timer preference. A hidden-tab
+transition does not establish blur-while-visible; the exact scope remains in the
+receipt and the focused frontend clock regression must cover visible window blur.
+Native OS-window behavior remains unqualified. Every focus target/context is
+closed in finally cleanup. Complete owner-feedback receipts are an acceptance
+requirement and remain visible in the compact protected summary.
+
+The `admit-followup` mode authenticates the exact accepted checker archive,
+source inventory and original physical-workspace handoff before a developer can
+start. It forwards only the unchanged small receipt, never restores source or
+runs builds/tests/browsers. A rejection creates no ready domain or handoff
+artifact. Fixture tests cover accepted source and archive/source/handoff/marker
+or stale-output refusal without running product code.
+Reusable admission receives `--request {goal}` and binds the prior archive/source
+to `accepted_candidate` in that immutable owner goal. An optional direct-fixture
+digest must agree when both mechanisms are supplied. The normal checker hashes
+the same exact goal bytes. Its explicit `--preview-root` retains each goal under
+that request SHA256, preserving earlier accepted previews; legacy exact
+`--preview` semantics remain unchanged.
 
 One explicit authored best-effort tracker contract covers only POST event and
 page-view ingestion. Its 4xx and transport failures remain visible diagnostics;

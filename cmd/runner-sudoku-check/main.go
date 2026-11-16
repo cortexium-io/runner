@@ -40,10 +40,12 @@ var browserContractScript []byte
 const evidenceLimit int64 = 16 << 20
 
 type options struct {
+	mode, acceptedCheck, acceptedCheckSHA256 string
+	acceptedHandoff                          string
 	handoff, priorCheck                      string
 	source, scratch, node, goBinary, modules string
 	playwright, chromium, webkit, request    string
-	base, preview                            string
+	base, preview, previewRoot               string
 }
 
 type fileProof struct {
@@ -100,6 +102,10 @@ type previewProof struct {
 
 func main() {
 	var o options
+	flag.StringVar(&o.mode, "mode", "check", "check or admit-followup")
+	flag.StringVar(&o.acceptedCheck, "accepted-check", "", "exact accepted protected checker archive for follow-up source admission")
+	flag.StringVar(&o.acceptedCheckSHA256, "accepted-check-sha256", "", "accepted archive SHA256 bound by the owner follow-up request")
+	flag.StringVar(&o.acceptedHandoff, "accepted-handoff", "", "accepted source handoff receipt for the same workspace")
 	flag.StringVar(&o.source, "source", "", "read-only canonical project workspace")
 	flag.StringVar(&o.scratch, "scratch", "", "Runner-owned writable scratch")
 	flag.StringVar(&o.node, "node", "", "configured Node executable")
@@ -108,9 +114,10 @@ func main() {
 	flag.StringVar(&o.playwright, "playwright", "", "configured Playwright index.mjs")
 	flag.StringVar(&o.chromium, "chromium", "", "configured Chrome for Testing executable")
 	flag.StringVar(&o.webkit, "webkit", "", "configured Playwright WebKit executable")
-	flag.StringVar(&o.request, "request", "", "original self-contained agreement JSON")
+	flag.StringVar(&o.request, "request", "", "authoritative task agreement/goal JSON")
 	flag.StringVar(&o.base, "base", "", "authenticated original Git base, 40 hex characters")
 	flag.StringVar(&o.preview, "preview", "", "optional exact Runner-owned retained preview directory")
+	flag.StringVar(&o.previewRoot, "preview-root", "", "optional retained preview root partitioned by exact request SHA256")
 	flag.StringVar(&o.handoff, "handoff", "", "typed protected source handoff artifact")
 	flag.StringVar(&o.priorCheck, "prior-check", "", "typed authenticated prior frontend check artifact")
 	flag.Parse()
@@ -125,6 +132,9 @@ func main() {
 }
 
 func run(ctx context.Context, o options) (err error) {
+	if o.mode == "admit-followup" {
+		return admitFollowup(ctx, o)
+	}
 	if err = o.validate(); err != nil {
 		return err
 	}
@@ -139,7 +149,7 @@ func run(ctx context.Context, o options) (err error) {
 			"Geometry/function assertions do not approve branding, hierarchy, spacing, icon quality or legibility; an independent reviewer must inspect retained full viewport captures.",
 			"No merge, production, restoration, legacy native-gate waiver or benchmark qualification is performed.",
 			"The retained preview is a stopped native executable, not a background development server or a release package.",
-			"WebKit exposes trusted taps but no public trusted touch hold/cancel API; its hold/move coverage uses a mouse pointer and Options, while Chromium uses CDP touch.",
+			"WebKit exposes trusted taps but no public trusted touch hold/cancel API; its hold/move coverage uses a mouse pointer, while Chromium uses CDP touch.",
 			"Neighbor evidence is three small Chromium desktop shared-shell smokes, not a full Suguru/Nonogram/Shikaku suite or renewed engine-generation qualification.",
 		},
 	}
@@ -232,6 +242,7 @@ func run(ctx context.Context, o options) (err error) {
 		return err
 	}
 	p.RequestSHA256 = digest(request)
+	o.preview = o.previewDirectory(p.RequestSHA256)
 	p.SourceFiles, p.SourceSHA256, err = candidateInventory(ctx, o.source)
 	if err != nil {
 		return err
@@ -322,6 +333,9 @@ func run(ctx context.Context, o options) (err error) {
 }
 
 func (o options) validate() error {
+	if o.mode != "" && o.mode != "check" {
+		return errors.New("--mode must be check or admit-followup")
+	}
 	for name, path := range map[string]string{"source": o.source, "scratch": o.scratch, "node": o.node, "go": o.goBinary, "modules": o.modules, "playwright": o.playwright, "chromium": o.chromium, "webkit": o.webkit, "request": o.request, "handoff": o.handoff, "prior-check": o.priorCheck} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return fmt.Errorf("--%s requires one absolute canonical path", name)
@@ -333,13 +347,25 @@ func (o options) validate() error {
 	if len(o.base) != 40 || !isHex(o.base) {
 		return errors.New("--base requires the authenticated original 40-character Git base")
 	}
-	if o.preview != "" && (!filepath.IsAbs(o.preview) || filepath.Clean(o.preview) != o.preview || o.preview == "/" || nested(o.source, o.preview) || nested(o.preview, o.source) || nested(o.scratch, o.preview) || nested(o.preview, o.scratch)) {
-		return errors.New("--preview must be an exact separate owned directory")
+	if o.preview != "" && o.previewRoot != "" {
+		return errors.New("select exact --preview or --preview-root, not both")
+	}
+	for _, preview := range []string{o.preview, o.previewRoot} {
+		if preview != "" && (!filepath.IsAbs(preview) || filepath.Clean(preview) != preview || preview == "/" || nested(o.source, preview) || nested(preview, o.source) || nested(o.scratch, preview) || nested(preview, o.scratch)) {
+			return errors.New("preview path must be an exact separate owned directory")
+		}
 	}
 	if nested(o.source, o.scratch) || nested(o.scratch, o.source) {
 		return errors.New("scratch and source must be separate")
 	}
 	return nil
+}
+
+func (o options) previewDirectory(requestSHA string) string {
+	if o.previewRoot != "" {
+		return filepath.Join(o.previewRoot, requestSHA)
+	}
+	return o.preview
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }

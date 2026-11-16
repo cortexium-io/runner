@@ -123,13 +123,92 @@ export async function newSudokuFromPlay(page,activate) {
     await activate(header);
     return;
   }
-  // In-progress touch play keeps New secondary; desktop and solved play can
-  // expose it in the heading. Follow the actual affordance, never a viewport
-  // guess or an unrelated New button in a dialog.
-  const more=page.locator('.sudoku-play .more-puzzle-actions');
-  assert.equal(await more.count(),1,'one in-play More actions disclosure is required');
-  if(await more.getAttribute('open')===null)await activate(page.locator('.sudoku-play .more-puzzle-actions > summary'));
-  await activate(more.getByRole('button',{name:'New puzzle',exact:true}));
+  // New remains secondary after removal of More actions. Resolve its actual
+  // visible control, or the existing Options disclosure; never a dialog's New.
+  const play=page.locator('.sudoku-play');
+  const target=play.getByRole('button',{name:'New puzzle',exact:true});
+  if(await target.count()===0) {
+    const settings=page.locator('.sudoku-play .play-settings');
+    assert.equal(await settings.count(),1,'one Options disclosure is required for a concealed New action');
+    if(await settings.getAttribute('open')===null)await activate(page.locator('.sudoku-play .play-settings > summary'));
+  }
+  assert.equal(await target.count(),1,'one visible in-play New puzzle action is required');
+  await activate(target);
+}
+
+// These are candidate observations, not selectors supplied by the product.
+export function feedbackLayoutFacts() {
+  const play=document.querySelector('.sudoku-play'),board=play?.querySelector('.puzzle-board');
+  const rect=node=>{if(!node)return null;const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom}};
+  const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility==='visible';
+  const buttons=[...(play?.querySelectorAll('button')??[])].filter(visible);
+  const actions=['Check','Restart'].map(label=>{
+    const found=buttons.filter(node=>(node.getAttribute('aria-label')??node.textContent).trim()===label);
+    return {label,count:found.length,rect:rect(found[0]),font:found[0]?parseFloat(getComputedStyle(found[0]).fontSize):0,
+      inside_primary:!!found[0]?.closest('.input-tools,.number-pad')};
+  });
+  const primary=[...(play?.querySelectorAll('.input-tools button')??[])].filter(visible).map(node=>node.getBoundingClientRect().height);
+  const text=play?.textContent??'';
+  return {board:rect(board),frame:rect(board?.closest('.player-board-frame')),actions,primary_height:primary.length?Math.min(...primary):0,
+    repeated_entry:!!play?.querySelector('.pin-option')||/Repeated entry/i.test(play?.querySelector('.play-settings')?.textContent??''),
+    more_actions:!!play?.querySelector('.more-puzzle-actions')||/More actions/i.test(text),
+    unlock_highlight:buttons.some(node=>/Unlock highlight/i.test(node.textContent)),
+    lock_prose:/Highlight\s+\d+\s+locked|Use Unlock highlight|Highlighting does not change the pinned/i.test(text)};
+}
+
+export function assertFeedbackLayout(facts) {
+  for(const name of ['repeated_entry','more_actions','unlock_highlight','lock_prose'])assert.equal(facts[name],false,`removed Sudoku UI remains: ${name}`);
+  assert.ok(facts.board&&facts.frame,'actual board/frame are required for secondary-action geometry');
+  assert.deepEqual(facts.actions.map(action=>action.label),['Check','Restart'],'Check and Restart measurements are required');
+  for(const action of facts.actions) {
+    assert.equal(action.count,1,`one visible ${action.label} action is required`);
+    const r=action.rect;
+    assert.ok(r&&r.width>0&&r.height>0&&facts.primary_height>0&&r.height<=facts.primary_height+1&&!action.inside_primary,`${action.label} is not a separate compact secondary action`);
+    assert.ok(r.bottom<=facts.board.y+1,`${action.label} is not above the board`);
+    assert.ok(r.x>=facts.frame.x+facts.frame.width/2-1&&r.right<=facts.frame.right+1,`${action.label} is not on the right above the board`);
+  }
+  const [check,restart]=facts.actions.map(action=>action.rect);
+  assert.ok(Math.max(check.y,restart.y)<Math.min(check.bottom,restart.bottom),'Check and Restart do not share a horizontal action row');
+  return {removed_controls_absent:true,compact_right_board_actions:true,...facts};
+}
+
+export function lockedDigitFacts(node) {
+  const style=getComputedStyle(node),span=node.querySelector('span');
+  return {disabled:node.matches(':disabled')||node.getAttribute('aria-disabled')==='true',
+    exhausted:node.classList.contains('exhausted'),highlighted:node.classList.contains('inspecting'),
+    background:style.backgroundColor,color:style.color,opacity:span?Number(getComputedStyle(span).opacity):Number(style.opacity)};
+}
+
+export function assertExhaustedHighlight(before,after,copies) {
+  assert.equal(copies,9,'exhausted-digit proof requires all nine actual placements');
+  assert.equal(before.highlighted,true,'digit must be locked before exhaustion');
+  assert.equal(after.highlighted,true,'exhaustion removed the locked highlight');
+  assert.equal(after.exhausted,true,'completed digit lacks its exhausted presentation');
+  assert.equal(after.disabled,true,'completed locked digit is still enabled');
+  assert.equal(after.background,before.background,'disabled completion lost the locked lime background');
+  const rgb=after.background.match(/^rgba?\(\s*([\d.]+)[, ]+\s*([\d.]+)[, ]+\s*([\d.]+)/)??after.background.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+  assert.ok(rgb&&Number(rgb[2])>Number(rgb[1])&&Number(rgb[3])<Number(rgb[1]),'locked completion background is not the green/lime palette');
+  assert.ok(after.opacity<1||after.color!==before.color,'completed locked digit has no visible disabled distinction');
+  return {copies,disabled:true,lime_retained:true,locked:true,before,after};
+}
+
+export function elapsedSeconds(text) {
+  const fields=text.trim().replace(/^Elapsed\s*/,'').trim().split(':').map(Number);
+  assert.ok(fields.length>=2&&fields.length<=3&&fields.every(Number.isFinite),'visible elapsed timer is unavailable');
+  return fields.reduce((seconds,value)=>seconds*60+value,0);
+}
+
+export function assertFocusClock(facts) {
+  assert.equal(facts.before.focused,true,'timer did not start in a focused document');
+  assert.equal(facts.lost.focused,false,'owned focus target did not blur the puzzle');
+  assert.equal(facts.background_end,facts.lost.elapsed,'elapsed timer advanced while unfocused');
+  assert.equal(facts.returned.focused,true,'puzzle did not regain focus');
+  assert.ok(facts.returned.elapsed<=facts.lost.elapsed+1,'unfocused time was charged when focus returned');
+  assert.ok(facts.resumed>=facts.returned.elapsed+2,'elapsed timer did not resume after focus');
+  assert.equal(facts.manual_after,facts.manual_before,'focus transition overrode manual pause');
+  assert.equal(facts.manual_resume_visible,true,'manual pause was cleared on focus');
+  assert.equal(facts.timer_setting_preserved,true,'focus transition changed Show timer preference');
+  return {...facts,scope:facts.lost.visibility==='visible'?'emulated window-focus loss while visible':'emulated background-document focus loss; visible-blur frontend regression remains required',native_window_proof:false};
 }
 
 // Complete ownership boundary of the authored best-effort tracker. Fields are

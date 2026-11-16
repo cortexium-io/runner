@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,assertFocusClock} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -167,33 +167,76 @@ test('home continuation targets the admitted board and accepts its authored unlo
   assert.throws(()=>savedBoardAction(page,'bad" selector'),/invalid admitted/);
 });
 
-test('in-play New follows its visible header or scoped More actions without touching completion dialogs',async()=>{
-  for(const setup of [{header:true,open:false},{header:false,open:false},{header:false,open:true}]) {
-    let open=setup.open;const actions=[];
-    const header={id:'header',isVisible:async()=>setup.header},summary={id:'summary'},secondary={id:'secondary'};
-    const button=(role,options)=>{assert.equal(role,'button');assert.deepEqual(options,{name:'New puzzle',exact:true});return secondary};
-    const more={count:async()=>1,getAttribute:async name=>{assert.equal(name,'open');return open?'':null},getByRole:button};
+test('in-play New follows its actual visible action or Options after More actions removal',async()=>{
+  for(const setup of [{header:true,standalone:false},{header:false,standalone:true},{header:false,standalone:false}]) {
+    let open=false;const actions=[];
+    const header={id:'header',isVisible:async()=>setup.header},summary={id:'summary'};
+    const target={id:'secondary',count:async()=>setup.standalone||open?1:0};
+    const role=(name,options)=>{assert.equal(name,'button');assert.deepEqual(options,{name:'New puzzle',exact:true})};
+    const settings={count:async()=>1,getAttribute:async name=>{assert.equal(name,'open');return open?'':null}};
     const page={locator:selector=>{
-      if(selector==='.sudoku-play .play-topbar')return {getByRole:(role,options)=>{button(role,options);return header}};
-      if(selector==='.sudoku-play .more-puzzle-actions')return more;
-      assert.equal(selector,'.sudoku-play .more-puzzle-actions > summary');return summary;
+      if(selector==='.sudoku-play .play-topbar')return {getByRole:(name,options)=>{role(name,options);return header}};
+      if(selector==='.sudoku-play')return {getByRole:(name,options)=>{role(name,options);return target}};
+      if(selector==='.sudoku-play .play-settings')return settings;
+      assert.equal(selector,'.sudoku-play .play-settings > summary');return summary;
     }};
-    await newSudokuFromPlay(page,async target=>{
-      actions.push(target.id);
-      if(target===summary){assert.equal(open,false);open=true}
-      if(target===secondary)assert.equal(open,true,'secondary action was attempted inside a closed disclosure');
-    });
-    assert.deepEqual(actions,setup.header?['header']:setup.open?['secondary']:['summary','secondary']);
+    await newSudokuFromPlay(page,async selected=>{actions.push(selected.id);if(selected===summary)open=true});
+    assert.deepEqual(actions,setup.header?['header']:setup.standalone?['secondary']:['summary','secondary']);
   }
 });
 
-test('in-play New cannot manufacture a missing or ambiguous disclosure',async()=>{
+test('in-play New refuses absent or ambiguous actual controls',async()=>{
   for(const count of [0,2]) {
-    const page={locator:selector=>selector.endsWith('.play-topbar')?{getByRole:()=>({isVisible:async()=>false})}:{count:async()=>count}};
+    const page={locator:selector=>{
+      if(selector.endsWith('.play-topbar'))return {getByRole:()=>({isVisible:async()=>false})};
+      if(selector==='.sudoku-play')return {getByRole:()=>({count:async()=>count})};
+      return {count:async()=>0};
+    }};
     let actions=0;
-    await assert.rejects(newSudokuFromPlay(page,async()=>{actions++}),/one in-play More actions disclosure is required/);
+    await assert.rejects(newSudokuFromPlay(page,async()=>{actions++}),count===0?/one Options disclosure/:/one visible in-play New/);
     assert.equal(actions,0);
   }
+});
+
+function feedbackLayout(){return {
+  board:{x:20,y:100,width:350,right:370},frame:{x:10,y:90,width:370,right:380},primary_height:60,
+  actions:[{label:'Check',count:1,rect:{x:220,y:50,width:70,height:32,right:290,bottom:82},font:14,inside_primary:false},
+    {label:'Restart',count:1,rect:{x:300,y:50,width:80,height:32,right:380,bottom:82},font:14,inside_primary:false}],
+  repeated_entry:false,more_actions:false,unlock_highlight:false,lock_prose:false,
+}}
+
+test('owner-feedback acceptance requires removed UI and separate top-right secondary actions',()=>{
+  assert.equal(assertFeedbackLayout(feedbackLayout()).compact_right_board_actions,true);
+  for(const removed of ['repeated_entry','more_actions','unlock_highlight','lock_prose']) {
+    const facts=feedbackLayout();facts[removed]=true;assert.throws(()=>assertFeedbackLayout(facts),new RegExp(removed));
+  }
+  const below=feedbackLayout();below.actions[0].rect.bottom=110;assert.throws(()=>assertFeedbackLayout(below),/above the board/);
+  const primary=feedbackLayout();primary.actions[1].inside_primary=true;assert.throws(()=>assertFeedbackLayout(primary),/separate compact/);
+  const left=feedbackLayout();left.actions[0].rect.x=20;assert.throws(()=>assertFeedbackLayout(left),/on the right/);
+  const missing=feedbackLayout();missing.actions=[];assert.throws(()=>assertFeedbackLayout(missing),/measurements/);
+});
+
+test('a locked completed digit must retain lime while visibly and semantically disabled',()=>{
+  const before={highlighted:true,disabled:false,exhausted:false,background:'rgb(221, 231, 179)',color:'rgb(30, 40, 50)',opacity:1};
+  const after={...before,disabled:true,exhausted:true,opacity:0.65};
+  assert.equal(assertExhaustedHighlight(before,after,9).lime_retained,true);
+  assert.throws(()=>assertExhaustedHighlight(before,{...after,disabled:false},9),/still enabled/);
+  assert.throws(()=>assertExhaustedHighlight(before,{...after,background:'rgb(240, 240, 240)'},9),/lost the locked lime/);
+  assert.throws(()=>assertExhaustedHighlight(before,{...after,opacity:1},9),/visible disabled/);
+  assert.throws(()=>assertExhaustedHighlight(before,after,8),/all nine/);
+});
+
+test('focus-clock acceptance rejects charged blur time, resume jumps and manual-pause loss',()=>{
+  assert.equal(elapsedSeconds('Elapsed 1:23'),83);assert.equal(elapsedSeconds('1:02:03'),3723);
+  const facts={before:{focused:true,elapsed:3},lost:{focused:false,visibility:'visible',elapsed:3},background_end:3,
+    returned:{focused:true,elapsed:3},resumed:5,manual_before:5,manual_after:5,manual_resume_visible:true,timer_setting_preserved:true};
+  assert.match(assertFocusClock(facts).scope,/while visible/);
+  assert.match(assertFocusClock({...facts,lost:{...facts.lost,visibility:'hidden'}}).scope,/visible-blur frontend regression/);
+  assert.throws(()=>assertFocusClock({...facts,background_end:8}),/advanced while unfocused/);
+  assert.throws(()=>assertFocusClock({...facts,returned:{focused:true,elapsed:8}}),/charged when focus returned/);
+  assert.throws(()=>assertFocusClock({...facts,resumed:3}),/did not resume/);
+  assert.throws(()=>assertFocusClock({...facts,manual_after:7}),/overrode manual pause/);
+  assert.throws(()=>assertFocusClock({...facts,timer_setting_preserved:false}),/Show timer/);
 });
 
 test('the complete owned tracker contract keeps both POST 4xx visible while unknown/private errors and all 5xx block',()=>{

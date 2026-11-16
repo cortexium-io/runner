@@ -151,7 +151,7 @@ func (s *Store) SaveTaskContinuation(ctx context.Context, origin, target runner.
 	if _, err = tx.ExecContext(ctx, "UPDATE runs SET data=? WHERE id=?", state, origin.ID); err != nil {
 		return err
 	}
-	if err = s.saveRunAuthorized(ctx, tx, target, nil, receipt, false, true, false); err != nil {
+	if err = s.saveRunAuthorized(ctx, tx, target, nil, receipt, saveAuthorization{continuation: true}); err != nil {
 		return err
 	}
 	return tx.Commit()

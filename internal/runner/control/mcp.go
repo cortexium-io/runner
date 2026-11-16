@@ -66,12 +66,13 @@ func (in RecoverBrowserErrorsArgs) request() (runner.RecoverBrowserErrorsRequest
 }
 
 type StartArgs struct {
-	SourceRef string            `json:"source_ref,omitempty"`
-	RequestID string            `json:"request_id"`
-	Project   string            `json:"project"`
-	Process   string            `json:"process,omitempty"`
-	Inputs    map[string]any    `json:"inputs,omitempty"`
-	Artifacts map[string]string `json:"artifacts,omitempty"`
+	Followup  *runner.TaskFollowupRequest `json:"followup,omitempty"`
+	SourceRef string                      `json:"source_ref,omitempty"`
+	RequestID string                      `json:"request_id"`
+	Project   string                      `json:"project"`
+	Process   string                      `json:"process,omitempty"`
+	Inputs    map[string]any              `json:"inputs,omitempty"`
+	Artifacts map[string]string           `json:"artifacts,omitempty"`
 }
 
 type ContinueTaskArgs struct {
@@ -135,14 +136,14 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, err := c.ContinueTask(req)
 		return compactResult(r, time.Now()), err
 	})
-	add(s, "runner_start", "Start an explicitly selected project process. Reuse request_id after an uncertain response.", func(ctx context.Context, in StartArgs) (any, error) {
+	add(s, "runner_start", "Start an explicitly selected project process. An optional followup binds the exact completed parent run/revision while preserving its result. Reuse request_id after an uncertain response.", func(ctx context.Context, in StartArgs) (any, error) {
 		r, e := start(c, in)
 		if e != nil {
 			return nil, e
 		}
 		return summary(r), nil
 	})
-	add(s, "runner_run", "Start or rejoin a selected process, following configured steps, corrections and bounded self-reconciliation until completion or an actionable wait. Reuse request_id after disconnect; disconnect does not cancel work or grant additional allowance.", func(ctx context.Context, in StartArgs) (any, error) {
+	add(s, "runner_run", "Start or rejoin a selected process, optionally linked to an exact completed followup parent, following configured steps, corrections and bounded self-reconciliation until completion or an actionable wait. Reuse request_id after disconnect; disconnect does not cancel work or grant additional allowance.", func(ctx context.Context, in StartArgs) (any, error) {
 		r, err := start(c, in)
 		if err != nil {
 			return nil, err
@@ -280,6 +281,7 @@ func start(c *runner.Core, in StartArgs) (runner.Run, error) {
 		return runner.Run{}, err
 	}
 	return c.Start(runner.StartRequest{
+		Followup:  in.Followup,
 		RequestID: in.RequestID,
 		Project:   in.Project,
 		Process:   in.Process,

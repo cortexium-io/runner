@@ -43,6 +43,17 @@ func TestBrowserPassCannotOmitTheFixedCoverage(t *testing.T) {
 	}
 }
 
+func TestBrowserPassCannotOmitCurrentOwnerFeedbackProof(t *testing.T) {
+	var p report
+	data := []byte(`{"schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},"owner_feedback":{"complete":false,"layout_observations":146}}`)
+	if err := recordBrowserReport(&p, data, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != "blocked" || !strings.Contains(p.Failure, "owner-feedback") || p.Browser["owner_feedback"] == nil {
+		t.Fatal("current owner requirements were lost or accepted without complete proof", p.Status, p.Browser)
+	}
+}
+
 func TestBrowserBestEffortDiagnosticsRemainVisibleWithoutChangingAcceptance(t *testing.T) {
 	data := []byte(`{
   "schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},

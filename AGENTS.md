@@ -2,6 +2,20 @@
 
 ## Current authority and scope
 
+On 16 November Dan requested seven Sudoku follow-up corrections: working hints;
+remove Repeated entry from Options; remove More actions and place compact Check/
+Restart above the board at the right; retain lime on the disabled exhausted locked
+digit; remove Unlock highlight and visible highlight-lock prose; pause the timer
+when the browser window loses focus. He explicitly approved building and
+qualifying the linked follow-up process after the configured one-time intake gap
+was explained. Add reusable authenticated follow-up intake to the same Core/store,
+link a new goal to the completed accepted parent without reopening it, preserve
+all source/progress/history/evidence and old-family freezes, then execute the
+product repair/check/independent review inside Runner. Necessary bounded
+maintenance agents, verifier/role contracts, qualified installation and updating
+the accepted local preview are authorized. Total-work caps stay disabled. No merge,
+production deployment, restoration or release-gate waiver is authorized.
+
 On 16 November Dan explicitly authorized making global total-work limits
 optional and disabling both aggregate attempts and total child-task counts on
 all configured projects. Local retries, concurrency, execution timeouts and disk

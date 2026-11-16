@@ -315,6 +315,9 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 	}
 	job.Directory = filepath.Join(n.disk.Root, control, "workspace")
 	a.OutputDir = filepath.Join(n.disk.Root, "artifacts", a.AttemptID)
+	if err := n.stageSharedGoal(*a, control); err != nil {
+		return err
+	}
 	if err := validateHarnessResults(*a, filepath.Join(n.disk.Root, control), job.ResultsFile); err != nil {
 		return err
 	}

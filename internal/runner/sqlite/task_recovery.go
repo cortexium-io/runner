@@ -99,7 +99,7 @@ func (s *Store) SaveTaskRecovery(ctx context.Context, expected, after []runner.R
 		if r.ID == receipt.RunID {
 			ownReceipt = receipt
 		}
-		if err = s.saveRunAuthorized(ctx, tx, r, nil, ownReceipt, false, false, true); err != nil {
+		if err = s.saveRunAuthorized(ctx, tx, r, nil, ownReceipt, saveAuthorization{recovery: true}); err != nil {
 			return err
 		}
 	}

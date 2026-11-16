@@ -4,21 +4,22 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,lockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,assertFocusClock} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
 const hash=value=>createHash('sha256').update(typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex');
 const report={schema:1,status:'failed',complete:false,browser_closed:false,engines:[],prerequisites:[],unrun:[],geometry:[],journeys:[],neighbors:[],screenshots:[],errors:[],diagnostics:[],document_failures:[],limits:[
   'Viewport/device input is headless emulation, not physical Duo/iPad/iPhone or native Safari.',
-  'Chromium hold/cancel uses trusted CDP touch; WebKit exposes trusted taps but no public hold/cancel touch API, so its hold/move cancellation uses a trusted mouse pointer and Options pinning.',
+  'Chromium hold/cancel uses trusted CDP touch; WebKit exposes trusted taps but no public hold/cancel touch API, so its hold/move cancellation uses a trusted mouse pointer.',
   'Secondary offscreen actions use browser scrolling before trusted clicks/taps; primary touch geometry is checked without automatic scrolling.',
   'Metrics do not judge branding, hierarchy, icon style, spacing or visual quality. Independent full viewport image review is mandatory.',
-  'At most four additional failure-state images supplement the 76 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
+  'At most four additional failure-state images supplement the80 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
   'Both authored best-effort telemetry POST channels retain 4xx/transport diagnostics; every API5xx, required/unclassified HTTP error and page exception still blocks acceptance. Diagnostics do not establish analytics health.',
   'HTTP diagnostic bodies are read only with an uncompressed declared size at most1KiB; raw bodies, puzzle codes, queries and full referrers are never retained.',
   'Diagnostic-body capture timeouts retain unavailable facts and a count; they do not establish analytics health or fail gameplay. Real cleanup failures remain blocking.',
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
+report.owner_feedback={contract:'sudoku-owner-feedback-2026-11-16',layout_observations:0,locked_exhausted:[],desktop_hints:[],focus_timer:[]};
 report.telemetry_contract=telemetryContract;
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
 let activeBrowser,current,activeCase,stopping=false,imageBytes=0,profile=0;
@@ -53,7 +54,7 @@ async function settle(page,boardSelector='.sudoku-play .puzzle-board') {
 async function capture(page,engine,state) {
   const id=state.replace(/[^a-z0-9-]/g,'-').slice(0,90),name=`${engine}-${id}.png`;
   if(report.screenshots.some(row=>row.name===name))return name;
-  assert.ok(report.screenshots.length<80,'fixed viewport image count exceeded');
+  assert.ok(report.screenshots.length<84,'fixed viewport image count exceeded');
   const appearance=await palette(page);
   if(state.endsWith('-dark'))assert.ok(appearance.choice==='dark'||appearance.choice==='system'&&appearance.systemDark,'dark capture is not using an actual dark palette');
   if(state.endsWith('-light'))assert.ok(appearance.choice==='light'||appearance.choice==='system'&&!appearance.systemDark,'light capture is not using an actual light palette');
@@ -232,7 +233,7 @@ async function createBoard(page,touch) {
 async function geometryCase(page,engine,viewport,phase,scheme,plannedImage) {
   const row={engine,viewport:viewport.id,width:viewport.width,height:viewport.height,touch:viewport.touch,phase,scheme,status:'failed'};
   report.geometry.push(row);
-  try {await settle(page);row.metrics=await measure(page);row.proof=assertGeometry(row.metrics,viewport);row.status='passed'}
+  try {await settle(page);row.metrics=await measure(page);row.proof=assertGeometry(row.metrics,viewport);row.owner_feedback=assertFeedbackLayout(await page.evaluate(feedbackLayoutFacts));report.owner_feedback.layout_observations++;row.status='passed'}
   catch(error){row.failure=bounded(error.message);await failedState(page,row,'geometry',{planned:plannedImage})}
   await save();
   return row;
@@ -266,14 +267,6 @@ async function setOptions(page,touch,operation) {
   });
 }
 
-async function pinOption(page,touch,value) {
-  await setOptions(page,touch,async()=>{
-    const select=page.locator('.sudoku-play .pin-option select');
-    await select.selectOption(String(value));
-  });
-  assert.deepEqual((await measure(page)).pinned,value?[value]:[],'Options repeated-entry selection is not reflected on the pad');
-}
-
 async function notesOn(page,touch,wanted=true) {
   const button=tool(page,'Notes');
   if((await button.getAttribute('aria-pressed')==='true')!==wanted)await action(page,button,touch);
@@ -296,7 +289,7 @@ async function resizeJourney(browser,engine,recipe,touch) {
     for(let value=1;value<=9;value++)await action(page,digit(page,value),touch);
     const denseNotes=(await state(page)).rendered[index].notes.filter(Boolean).length;
     assert.ok(denseNotes>=6,'dense-note setup lacks six actual UI note entries');
-    await pinOption(page,touch,recipe.answer[index]);
+    await hold(page,engine,recipe.answer[index],{touch});
     const before=await state(page);
     for(const side of touch?['right','left']:['latent']) {
       if(touch) {
@@ -327,10 +320,10 @@ async function resizeJourney(browser,engine,recipe,touch) {
   });
 }
 
-async function hold(page,engine,value,{cancel=false,move=false}={}) {
+async function hold(page,engine,value,{cancel=false,move=false,touch=true}={}) {
   const key=digit(page,value),rect=await key.boundingBox();assert.ok(rect,'hold digit is absent');
   const x=rect.x+rect.width/2,y=rect.y+rect.height/2;
-  if(engine==='chromium') {
+  if(engine==='chromium'&&touch) {
     const cdp=await page.context().newCDPSession(page);let active=false;
     try {
       await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{id:1,x,y}]});active=true;
@@ -369,9 +362,9 @@ async function entryJourney(browser,engine,recipe) {
     await hold(page,engine,value,{move:true});
     assert.deepEqual((await measure(page)).pinned,[],'moved/cancelled hold pinned a digit');
     assert.deepEqual((await state(page)).snapshots,before.snapshots,'moved hold or late release wrote progress');
-    await pinOption(page,true,value);
+    await hold(page,engine,value);
     await cell(page,index).focus();await page.keyboard.press('Escape');await settle(page);
-    assert.deepEqual((await measure(page)).pinned,[],'keyboard Escape did not exit Options pin');
+    assert.deepEqual((await measure(page)).pinned,[],'keyboard Escape did not exit hold pin');
     await notesOn(page,true);
     await action(page,digit(page,value),true);
     assert.equal((await state(page)).rendered[index].notes[value-1],String(value),'Notes tap did not toggle actual pencil mark');
@@ -380,13 +373,11 @@ async function entryJourney(browser,engine,recipe) {
     await action(page,tool(page,'Undo'),true);
     assert.equal((await state(page)).rendered[index].notes[value-1],String(value),'Undo did not restore erased note');
     await setOptions(page,true,async()=>{});
-    const more=page.locator('.sudoku-play .more-puzzle-actions > summary');
-    await action(page,more,true,{secondary:true});
-    await action(page,page.locator('.sudoku-play .more-puzzle-actions').getByRole('button',{name:'Redo',exact:true}),true,{secondary:true});
+    assertFeedbackLayout(await page.evaluate(feedbackLayoutFacts));
+    await action(page,page.locator('.sudoku-play').getByRole('button',{name:'Redo',exact:true}),true,{secondary:true});
     assert.equal((await state(page)).rendered[index].notes.filter(Boolean).length,0,'secondary Redo did not restore erase');
     await action(page,tool(page,'Undo'),true,{secondary:true});
     assert.equal((await state(page)).rendered[index].notes[value-1],String(value),'Undo after secondary Redo did not restore note');
-    await action(page,more,true,{secondary:true});
     const saved=await snapshots(page),visible=(await state(page)).rendered;
     await page.reload({waitUntil:'domcontentloaded'});await settle(page);
     assert.deepEqual(await snapshots(page),saved,'in-progress reload changed saved progress');
@@ -396,7 +387,7 @@ async function entryJourney(browser,engine,recipe) {
     assert.deepEqual((await state(page)).rendered,visible,'home Resume did not restore in-progress entries/notes');
     const input=await page.evaluate(()=>window.runnerSudokuInput);report.input.touch+=input.touch;report.input.mouse+=input.mouse;report.input.keyboard+=input.keyboard;
     assert.ok(input.touch>0,'entry journey did not produce trusted touches');
-    return {cell_first:true,hold:engine==='chromium'?'trusted-touch':'trusted-mouse-WebKit-limitation',cancel_and_move:true,options_pin:true,escape:true,notes_erase_undo_redo:true,reload:true,home_resume:true,input};
+    return {cell_first:true,hold:engine==='chromium'?'trusted-touch':'trusted-mouse-WebKit-limitation',cancel_and_move:true,hold_pin:true,escape:true,notes_erase_undo_redo:true,reload:true,home_resume:true,input};
   });
 }
 
@@ -406,7 +397,7 @@ async function sideJourney(browser,engine,recipe) {
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
     const initial=await measure(page);assert.ok(initial.controls.x>initial.frame.x,'touch side must initially be right');
-    await action(page,cell(page,index),true);await notesOn(page,true);await action(page,digit(page,value),true);await pinOption(page,true,value);
+    await action(page,cell(page,index),true);await notesOn(page,true);await action(page,digit(page,value),true);await hold(page,engine,value);
     const before=await state(page);
     await setOptions(page,true,async()=>{await action(page,page.locator('.sudoku-play .controls-side').getByRole('button',{name:'Left',exact:true}),true,{secondary:true})});
     const left=await measure(page);assert.ok(left.controls.x<left.frame.x,'Left did not swap the complete panels');
@@ -429,22 +420,28 @@ async function sideJourney(browser,engine,recipe) {
   });
 }
 
+async function hintExplanation(page,touch) {
+  await action(page,tool(page,'Hint'),touch,{secondary:!touch});
+  const panel=page.locator('.sudoku-play .hint-panel:visible');await panel.waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('.sudoku-play .hint-panel')?.getAttribute('aria-busy')!=='true');
+  const request=panel.getByRole('button',{name:'A little hint',exact:true});
+  if(await request.isVisible())await action(page,request,touch,{secondary:true});
+  const reveal=panel.getByRole('button',{name:'Show the next move',exact:true});await reveal.waitFor({state:'visible'});
+  await action(page,panel.getByRole('button',{name:'Show why',exact:true}),touch,{secondary:true});
+  await panel.locator('.hint-why').waitFor({state:'visible'});
+  const explanation=(await panel.locator('.hint-why').innerText()).trim();
+  assert.ok(explanation.length>0,'requested explanation is empty');
+  return {panel,reveal,explanation};
+}
+
 async function hintJourney(browser,engine,recipe) {
   const viewport=viewports.find(v=>v.id==='phone-390');
   return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
-    await action(page,cell(page,index),true);await notesOn(page,true);await action(page,digit(page,value),true);await pinOption(page,true,value);
+    await action(page,cell(page,index),true);await notesOn(page,true);await action(page,digit(page,value),true);await hold(page,engine,value);
     const before=await snapshots(page),pin=(await measure(page)).pinned;
-    await action(page,tool(page,'Hint'),true);
-    const panel=page.locator('.sudoku-play .hint-panel:visible');await panel.waitFor({state:'visible'});
-    await page.waitForFunction(()=>document.querySelector('.sudoku-play .hint-panel')?.getAttribute('aria-busy')!=='true');
-    const request=panel.getByRole('button',{name:'A little hint',exact:true});
-    if(await request.isVisible())await action(page,request,true,{secondary:true});
-    const reveal=panel.getByRole('button',{name:'Show the next move',exact:true});await reveal.waitFor({state:'visible'});
-    await action(page,panel.getByRole('button',{name:'Show why',exact:true}),true,{secondary:true});
-    await panel.locator('.hint-why').waitFor({state:'visible'});
-    assert.ok((await panel.locator('.hint-why').innerText()).trim().length>20,'requested explanation is empty');
+    const {panel,reveal}=await hintExplanation(page,true);
     for(const scheme of ['light','dark']){await page.emulateMedia({colorScheme:scheme});await settle(page);assertGeometry(await measure(page),viewport,{hint:true});await capture(page,engine,'phone-hint-why-'+scheme)}
     await action(page,reveal,true,{secondary:true});
     const final=panel.locator('.hint-final-step');
@@ -470,8 +467,23 @@ async function completionJourney(browser,engine,recipe,touch=false) {
   const viewport=viewports.find(v=>v.id===(touch?'phone-390':'desktop'));
   return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
-    const rows=(await state(page)).rendered;
-    for(const row of rows.filter(row=>!row.given)) {
+    const rows=(await state(page)).rendered,editable=rows.filter(row=>!row.given);
+    const locked=recipe.answer[editable[0].index];
+    await action(page,cell(page,editable[0].index),touch,{secondary:!touch});
+    await page.keyboard.down('Shift');
+    try{await page.keyboard.press(String(locked))}finally{await page.keyboard.up('Shift')}
+    await settle(page);
+    const beforeLocked=await digit(page,locked).evaluate(lockedDigitFacts);
+    const copies=editable.filter(row=>recipe.answer[row.index]===locked);
+    for(const row of copies) {
+      await action(page,cell(page,row.index),touch,{secondary:!touch});
+      await page.keyboard.press(String(locked));await settle(page);
+    }
+    const completeDigit=assertExhaustedHighlight(beforeLocked,await digit(page,locked).evaluate(lockedDigitFacts),(await state(page)).rendered.filter(row=>Number(row.value)===locked).length);
+    assertFeedbackLayout(await page.evaluate(feedbackLayoutFacts));
+    if(touch)completeDigit.image=await capture(page,engine,'phone-exhausted-locked-light');
+    report.owner_feedback.locked_exhausted.push({engine,viewport:viewport.id,digit:locked,activation:'trusted Shift+digit keyboard; normal cell entries',proof:completeDigit});
+    for(const row of editable.filter(row=>recipe.answer[row.index]!==locked)) {
       await action(page,cell(page,row.index),touch,{secondary:!touch});
       await action(page,digit(page,recipe.answer[row.index]),touch,{secondary:!touch});
     }
@@ -490,7 +502,7 @@ async function completionJourney(browser,engine,recipe,touch=false) {
     await newSudokuFromPlay(page,target=>action(page,target,touch,{secondary:true}));
     await page.waitForURL(url=>/^\/sudoku\//.test(url.pathname)&&url.pathname!==oldPath);await settle(page);
     assert.equal(await page.locator('.sudoku-play .completion:visible').count(),0,'New puzzle retained completed state');
-    return {publication:recipe.publication,normal_UI_entries:rows.filter(row=>!row.given).length,solved:true,result_light_dark:true,reload:true,home_view:true,new_puzzle:true};
+    return {publication:recipe.publication,normal_UI_entries:editable.length,locked_exhausted:completeDigit,solved:true,result_light_dark:true,reload:true,home_view:true,new_puzzle:true};
   });
 }
 
@@ -516,13 +528,76 @@ async function keyboardJourney(browser,engine,recipe) {
     await page.keyboard.press('Tab');assert.equal(await page.locator('.sudoku-play .puzzle-board').evaluate(n=>n.contains(document.activeElement)),false,'Tab did not leave the board');
     const input=await page.evaluate(()=>window.runnerSudokuInput);report.input.keyboard+=input.keyboard;
     assert.ok(input.keyboard>=8,'desktop keyboard proof lacks trusted key events');
-    return {short_window:[viewport.width,viewport.height],digit:true,undo:true,arrows_focus:true,notes_erase:true,givens_protected:true,tab_exit:true,input};
+    const desktop=viewports.find(v=>v.id==='desktop');
+    await page.setViewportSize({width:desktop.width,height:desktop.height});await settle(page);
+    const desktopHint=await hintExplanation(page,false);
+    const hintProof={engine,viewport:desktop.id,requested:true,explanation_characters:desktopHint.explanation.length,
+      image:await capture(page,engine,'desktop-hint-why-light')};
+    report.owner_feedback.desktop_hints.push(hintProof);
+    return {short_window:[viewport.width,viewport.height],digit:true,undo:true,arrows_focus:true,notes_erase:true,givens_protected:true,tab_exit:true,desktop_hint:hintProof,input};
   });
+}
+
+async function focusClock(browser,engine,page) {
+  const play=page.locator('.sudoku-play'),timer=play.locator('.elapsed-time:visible');
+  let originalTimer;
+  await setOptions(page,true,async settings=>{
+    const setting=settings.getByRole('checkbox',{name:'Show timer',exact:true});originalTimer=await setting.isChecked();
+    if(!originalTimer)await action(page,setting,true,{secondary:true});
+  });
+  const clockState=async()=>({...(await page.evaluate(()=>({focused:document.hasFocus(),visibility:document.visibilityState}))),elapsed:elapsedSeconds(await timer.innerText())});
+  await page.bringToFront();
+  const initial=await clockState();
+  await page.clock.runFor(2100);
+  const before=await clockState();
+  assert.ok(before.elapsed>=initial.elapsed+2,'focused timer did not advance');
+  await page.evaluate(()=>{
+    window.runnerFocusEvents=[];
+    for(const type of ['blur','focus'])window.addEventListener(type,event=>{window.runnerFocusEvents.push({type,trusted:event.isTrusted,visibility:document.visibilityState,focused:document.hasFocus()});if(window.runnerFocusEvents.length>12)window.runnerFocusEvents.shift()});
+  });
+  let other,cdp,targetId;
+  const away=async()=>{
+    if(engine==='chromium') {
+      cdp??=await browser.newBrowserCDPSession();
+      ({targetId}=await cdp.send('Target.createTarget',{url:'about:blank',newWindow:true,background:false}));
+      await cdp.send('Target.activateTarget',{targetId});
+    } else {other=await page.context().newPage();await other.bringToFront()}
+  };
+  const back=async()=>{
+    if(targetId){await cdp.send('Target.closeTarget',{targetId});targetId=undefined}
+    if(other){await other.close();other=undefined}
+    await page.bringToFront();
+  };
+  try {
+    await away();const lost=await clockState();
+    await page.clock.runFor(5100);const backgroundEnd=(await clockState()).elapsed;
+    await back();const returned=await clockState();
+    await page.clock.runFor(2100);const resumed=(await clockState()).elapsed;
+    await action(page,play.getByRole('button',{name:'Pause',exact:true}),true,{secondary:true});
+    const manualBefore=(await clockState()).elapsed;
+    await away();await page.clock.runFor(3100);await back();await page.clock.runFor(2100);
+    const manualAfter=(await clockState()).elapsed,manualResume=await play.getByRole('button',{name:'Resume',exact:true}).isVisible();
+    await action(page,play.getByRole('button',{name:'Resume',exact:true}),true,{secondary:true});
+    await setOptions(page,true,async settings=>{await action(page,settings.getByRole('checkbox',{name:'Show timer',exact:true}),true,{secondary:true})});
+    await away();await page.clock.runFor(2100);await back();
+    let timerSettingPreserved;
+    await setOptions(page,true,async settings=>{
+      const setting=settings.getByRole('checkbox',{name:'Show timer',exact:true});timerSettingPreserved=!(await setting.isChecked());
+      if(originalTimer)await action(page,setting,true,{secondary:true});
+    });
+    const events=await page.evaluate(()=>window.runnerFocusEvents);
+    assert.ok(events.some(row=>row.type==='blur'&&row.trusted),'no actual trusted blur event was observed');
+    const proof=assertFocusClock({initial,before,lost,background_end:backgroundEnd,returned,resumed,manual_before:manualBefore,manual_after:manualAfter,
+      manual_resume_visible:manualResume,timer_setting_preserved:timerSettingPreserved,events,clock:'Playwright controlled clock',focus_driver:engine==='chromium'?'owned CDP newWindow target':'owned WebKit page'});
+    report.owner_feedback.focus_timer.push({engine,...proof});
+    return proof;
+  } finally {await back();if(cdp)await cdp.detach()}
 }
 
 async function appearanceJourney(browser,engine,recipe) {
   const viewport=viewports.find(v=>v.id==='phone-390');
   return inContext(browser,engine,viewport,async page=>{
+    await page.clock.install();
     await load(page,recipe.boardPath);
     const before=await snapshots(page),seen={};
     for(const choice of ['dark','light','system']) {
@@ -538,7 +613,8 @@ async function appearanceJourney(browser,engine,recipe) {
     const system=[];
     for(const scheme of ['dark','light']){await page.emulateMedia({colorScheme:scheme});await settle(page);system.push(await palette(page))}
     assert.ok(system.every(p=>p.choice==='system'&&p.page)&&system[0].page!==system[1].page,'System appearance did not follow the actual emulated preference');
-    return {explicit_controls:true,persisted_reload:true,system_follows_media:true,progress_unchanged:true,palettes:seen};
+    const focusTimer=await focusClock(browser,engine,page);
+    return {explicit_controls:true,persisted_reload:true,system_follows_media:true,progress_unchanged:true,palettes:seen,focus_timer:focusTimer};
   });
 }
 
@@ -647,7 +723,8 @@ try {
   const missingJourneys=['chromium','webkit'].flatMap(engine=>['normal-ui-admission',...functionalJourneys].filter(id=>!report.journeys.some(row=>row.engine===engine&&row.id===id)).map(id=>({engine,id})));
   report.coverage={required_engines:2,observed_engines:report.engines.length,required_geometry:expectedGeometry,observed_geometry:report.geometry.length,
     required_journeys:20,missing_journeys:missingJourneys,required_neighbors:3,observed_neighbors:report.neighbors.length};
-  report.coverage.complete=report.engines.length===2&&report.geometry.length===expectedGeometry&&missingJourneys.length===0&&report.neighbors.length===3;
+  report.owner_feedback.complete=report.owner_feedback.layout_observations===expectedGeometry&&report.owner_feedback.locked_exhausted.length===4&&report.owner_feedback.desktop_hints.length===2&&report.owner_feedback.focus_timer.length===2;
+  report.coverage.complete=report.engines.length===2&&report.geometry.length===expectedGeometry&&missingJourneys.length===0&&report.neighbors.length===3&&report.owner_feedback.complete;
   report.status=report.unrun.length||!report.coverage.complete?'blocked':failures()===0?'passed':'failed';
 } catch(error){report.failure=bounded(error.message)}
 finally {

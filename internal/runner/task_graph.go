@@ -257,6 +257,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		return nil, errors.New("task context requires intact family budget ownership")
 	}
 	ctx := &TaskContext{
+		Followup:          Clone(root.Followup),
 		AttemptBudget:     budget,
 		Lineage:           Clone(root.TaskGraph.Lineage),
 		RootRunID:         root.ID,
@@ -356,7 +357,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 
 func (c *Core) graphArtifactAllowed(r Run, id string) bool {
 	artifact, err := c.store.Artifact(c.ctx, id)
-	if err != nil || artifact.ProjectID != r.ProjectID && !c.taskContinuationArtifact(r, artifact) {
+	if err != nil || artifact.ProjectID != r.ProjectID && !c.taskContinuationArtifact(r, artifact) && !c.taskFollowupArtifact(r, artifact) {
 		return false
 	}
 	for _, input := range r.Inputs {

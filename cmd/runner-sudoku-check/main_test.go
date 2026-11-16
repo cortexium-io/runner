@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -290,6 +291,33 @@ func TestPreviewInterruptedPromotionKeepsPreviousPointerAndRecovers(t *testing.T
 	entries, err := os.ReadDir(preview)
 	if err != nil || len(entries) != 4 {
 		t.Fatalf("preview intermediates leaked: %+v %v", entries, err)
+	}
+}
+
+func TestRequestPartitionedPreviewPreservesTheEarlierAcceptedGoal(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "server")
+	fixtureFile(t, filepath.Dir(binary), "server", "first accepted executable")
+	o := options{previewRoot: filepath.Join(t.TempDir(), "previews")}
+	firstGoal, nextGoal := digest([]byte("first immutable goal")), digest([]byte("next immutable goal"))
+	first, err := retainPreview(o.previewDirectory(firstGoal), binary, "first-source", "base", firstGoal, "passed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(first.Directory, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureFile(t, filepath.Dir(binary), "server", "next accepted executable")
+	next, err := retainPreview(o.previewDirectory(nextGoal), binary, "next-source", "base", nextGoal, "passed")
+	if err != nil || first.Directory == next.Directory {
+		t.Fatal("next goal could not retain an independent preview", err)
+	}
+	after, err := os.ReadFile(filepath.Join(first.Directory, "manifest.json"))
+	if err != nil || !bytes.Equal(after, manifest) {
+		t.Fatal("next goal rewrote the earlier accepted preview", err)
+	}
+	if hash, err := hashFile(first.ServerPath, 128<<20); err != nil || hash != first.ServerSHA256 {
+		t.Fatal("next goal removed or altered the earlier executable", err)
 	}
 }
 

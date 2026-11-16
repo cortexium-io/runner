@@ -32,6 +32,10 @@ const externalFamilyConsumers = `SELECT EXISTS(
 SELECT 1 FROM artifacts a JOIN artifact_uses u ON u.artifact=a.id
 JOIN family producer ON producer.id=a.run_id
 LEFT JOIN family consumer ON consumer.id=u.run_id
+WHERE consumer.id IS NULL
+UNION ALL SELECT 1 FROM runs source JOIN family producer ON producer.id=source.id
+JOIN runs follower ON json_extract(CAST(follower.data AS TEXT),'$.followup.run_id')=json_extract(CAST(source.data AS TEXT),'$.task_graph.root_run_id')
+LEFT JOIN family consumer ON consumer.id=follower.id
 WHERE consumer.id IS NULL)`
 
 func (s *Store) HasExternalConsumers(ctx context.Context, ids []string) (bool, error) {
@@ -58,6 +62,9 @@ func (s *Store) DeleteFamily(ctx context.Context, ids []string) error {
 	}
 	defer tx.Rollback()
 	if err = guardTaskContinuationDelete(ctx, tx, ids); err != nil {
+		return err
+	}
+	if err = s.guardTaskFollowupDelete(ctx, tx, ids); err != nil {
 		return err
 	}
 	var external int

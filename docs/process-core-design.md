@@ -7,6 +7,43 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Linked accepted-task follow-up, authorized 16 November 2026
+
+The owner requested seven corrections to the accepted Sudoku preview, then
+explicitly approved building the missing normal follow-up intake. Keep parent
+`run_PFI3NBEMY4SOLNU6QCHPWFP5C5` Completed with its original work/evidence and
+88 spent. The new goal must link to that accepted parent; do not reopen its final
+assessment, copy its task history/workspace or route product edits outside Runner.
+
+1. Extend normal Start/Run with an optional exact-revision completed general-root
+   follow-up binding. Authenticate same project/canonical workspace, settled family
+   and inherited artifact authority atomically with the normal start receipt.
+   Persist immutable parent lineage, expose it in context/result and protect the
+   referenced parent from collection. Use the existing lifecycle, scheduler and
+   transactional store; qualify replay, stale/active/foreign/forged requests,
+   rollback/restart and retention. Schema 14 excludes incompatible old readers.
+2. Stage the project's follow-up process with focused-test-capable developer,
+   protected checker and evidence-ready independent source/image reviews. Native
+   profiles and total-work policy remain unchanged. A fixed admission task first
+   verifies the hash-bound accepted archive, complete current source inventory and
+   existing handoff receipt; it forwards the small receipt without copying or
+   resetting source. New role guidance carries the complete original agreement
+   and latest explicit overrides once, plus canonical owner screenshots.
+3. Correct the shared protected interaction contract for the revised controls,
+   working hints, exhausted-highlight appearance/state and focus-paused timer.
+   Keep genuine input, required geometry/journeys/neighbor coverage, meaningful
+   assertions and cleanup. Focused model-free regression and static review precede
+   qualified installation; test tools do not perform product work externally.
+4. Submit one linked follow-up with stable identity and current parent revision.
+   Runner owns development, focused regressions, protected verification, repair
+   and independent judgment. Retain the old accepted app while work proceeds;
+   after the new exact candidate is accepted, update the owned loopback preview
+   while preserving its database/browser progress. Report actual seven-change
+   evidence, native/emulated limits, usage/interventions and owned cleanup.
+
+Canonical owner intake and qualification:
+`/Users/dan/Projects/runner-qualifications/20261116/sudoku-followup/`.
+
 ### Optional total-work limits, authorized 16 November 2026
 
 The owner explicitly chose to disable both aggregate execution and total

@@ -54,6 +54,8 @@ func run(ctx context.Context, args []string) error {
 	project := fs.String("project", "", "project ID")
 	sourceRef := fs.String("source-ref", "", "local Git ref/commit; otherwise the project source default")
 	process := fs.String("process", "", "process ID; otherwise project default")
+	followupRun := fs.String("followup-run", "", "exact completed general-task root for linked follow-up work")
+	followupRevision := fs.Int64("followup-revision", 0, "exact observed family revision of the completed follow-up parent")
 	input := fs.String("inputs", "{}", "JSON object of inline inputs")
 	artifacts := fs.String("artifacts", "{}", "JSON object of input artifact IDs")
 	runID := fs.String("run", "", "run ID")
@@ -101,6 +103,26 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	var followup *runner.TaskFollowupRequest
+	if *followupRun != "" || *followupRevision != 0 {
+		allowed := map[string]bool{
+			"data":              true,
+			"endpoint":          true,
+			"request-id":        true,
+			"project":           true,
+			"process":           true,
+			"inputs":            true,
+			"artifacts":         true,
+			"followup-run":      true,
+			"followup-revision": true,
+		}
+		bad := false
+		fs.Visit(func(f *flag.Flag) { bad = bad || !allowed[f.Name] })
+		if bad || (command != "start" && command != "run") || *followupRun == "" || *followupRevision < 1 || *sourceRef != "" {
+			return errors.New("linked follow-up requires start or run, --followup-run and positive --followup-revision; no source, profile or allowance overrides")
+		}
+		followup = &runner.TaskFollowupRequest{RunID: *followupRun, Revision: *followupRevision}
 	}
 	if command == "recover-tasks" {
 		allowed := map[string]bool{"data": true, "endpoint": true, "run": true, "revision": true, "request-id": true, "task-ids": true, "reason": true}
@@ -296,6 +318,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_" + command
 		a = control.StartArgs{
+			Followup:  followup,
 			RequestID: *requestID,
 			Project:   *project,
 			Process:   *process,

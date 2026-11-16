@@ -136,6 +136,9 @@ func harnessFilesystem(spec harnessSpec) string {
 	for _, path := range harnessArtifactFiles(spec.Assignment) {
 		paths[path] = "read"
 	}
+	if path := sharedGoalPath(spec.Assignment, spec.Control); path != "" {
+		paths[path] = "read"
+	}
 	if spec.ResultsFile != nil {
 		paths[harnessResultsReadPath(spec.Assignment, spec.ResultsFile)] = "read"
 	}

@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -36,7 +37,14 @@ func sharedAssignment(a runner.Assignment) (runner.Assignment, error) {
 		values = append(values, value)
 	}
 	selected := map[string]runner.RoleTaskResult{}
+	needsGoal := false
 	for _, value := range values {
+		if strings.Contains(value, "{goal}") {
+			if value != "{goal}" {
+				return a, errors.New("goal file binding must occupy one whole argument or environment value")
+			}
+			needsGoal = true
+		}
 		name, err := runner.CommandArtifactInput(value)
 		if err != nil {
 			return a, err
@@ -71,6 +79,12 @@ func sharedAssignment(a runner.Assignment) (runner.Assignment, error) {
 	// ownership and purpose without repeating every child's report in its job.
 	g := a.TaskContext
 	a.TaskContext = &runner.TaskContext{RootRunID: g.RootRunID, ParentRunID: g.ParentRunID, TaskID: g.TaskID, Brief: runner.Clip(g.Brief), WritePaths: runner.Clone(g.WritePaths)}
+	if needsGoal {
+		if g.Goal == "" || int64(len(g.Goal)) > int64(a.Limits.MaxRecord) {
+			return a, errors.New("goal file binding needs the complete authoritative goal within its record limit")
+		}
+		a.TaskContext.Goal = g.Goal
+	}
 	ids := make([]string, 0, len(selected))
 	for id := range selected {
 		ids = append(ids, id)
@@ -115,6 +129,9 @@ func executionRuntimePaths(p runner.Profile) []string {
 }
 
 func sharedValue(value string, spec harnessSpec) string {
+	if value == "{goal}" {
+		return sharedGoalPath(spec.Assignment, spec.Control)
+	}
 	if name, err := runner.CommandArtifactInput(value); err == nil && name != "" {
 		return harnessArtifactFiles(spec.Assignment)[spec.Assignment.Inputs[name].ArtifactID]
 	}
@@ -126,7 +143,67 @@ func sharedValue(value string, spec harnessSpec) string {
 	return strings.NewReplacer("{workspace}", spec.Directory, "{source}", spec.Directory, "{scratch}", spec.ScratchDir).Replace(value)
 }
 
+// A fixed command can read the immutable root goal without having a model copy
+// it into another task input or select a caller-owned filesystem path.
+func sharedGoalPath(a runner.Assignment, control string) string {
+	command := a.Setup.Profile.Command
+	if !sharedCommand(a) || command == nil {
+		return ""
+	}
+	for _, value := range command.Args {
+		if value == "{goal}" {
+			return filepath.Join(control, "goal.txt")
+		}
+	}
+	for _, value := range command.Env {
+		if value == "{goal}" {
+			return filepath.Join(control, "goal.txt")
+		}
+	}
+	return ""
+}
+
+func (n *Native) stageSharedGoal(a runner.Assignment, control string) error {
+	path := sharedGoalPath(a, filepath.Join(n.disk.Root, control))
+	if path == "" {
+		return nil
+	}
+	if a.TaskContext == nil || a.TaskContext.Goal == "" {
+		return errors.New("shared goal binding lost its authoritative task goal")
+	}
+	name := control + "/goal.txt"
+	data, err := n.disk.Read(name, n.disk.Policy.Database.MaxRecord)
+	if errors.Is(err, os.ErrNotExist) {
+		if err = n.disk.Write(name, []byte(a.TaskContext.Goal), n.disk.Policy.Database.MaxRecord); err != nil {
+			return err
+		}
+	} else if err != nil || !bytes.Equal(data, []byte(a.TaskContext.Goal)) {
+		return errors.New("staged shared goal differs from its frozen assignment")
+	}
+	return os.Chmod(path, 0400)
+}
+
+func validateSharedGoal(spec harnessSpec) error {
+	path := sharedGoalPath(spec.Assignment, spec.Control)
+	if path == "" {
+		return nil
+	}
+	goal := spec.Assignment.TaskContext
+	info, err := os.Lstat(path)
+	if goal == nil || goal.Goal == "" || err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0222 != 0 || info.Size() != int64(len(goal.Goal)) || info.Size() > int64(spec.Storage.Database.MaxRecord) {
+		return errors.New("shared goal input identity, permissions or bound differs")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(data, []byte(goal.Goal)) {
+		return errors.New("shared goal input changed from its frozen assignment")
+	}
+	return nil
+}
+
 func sharedProcess(ctx context.Context, spec harnessSpec) (*exec.Cmd, error) {
+	if err := validateSharedGoal(spec); err != nil {
+		return nil, err
+	}
 	args := runner.Clone(spec.Assignment.Setup.Profile.Command.Args)
 	for i := range args {
 		args[i] = sharedValue(args[i], spec)
@@ -182,6 +259,9 @@ func sharedSeatbeltPolicy(spec harnessSpec) string {
 	policy := "(version 1)\n(allow default)\n(deny file-write* (require-all " + strings.Join(exceptions, " ") + "))\n"
 	readExceptions := []string{"(subpath " + strconv.Quote(spec.Root) + ")", "(require-not (subpath " + strconv.Quote(spec.Assignment.OutputDir) + "))", "(require-not (subpath " + strconv.Quote(filepath.Join(spec.Control, "tmp")) + "))"}
 	for _, path := range harnessArtifactFiles(spec.Assignment) {
+		readExceptions = append(readExceptions, "(require-not (literal "+strconv.Quote(path)+"))")
+	}
+	if path := sharedGoalPath(spec.Assignment, spec.Control); path != "" {
 		readExceptions = append(readExceptions, "(require-not (literal "+strconv.Quote(path)+"))")
 	}
 	// SQLite's Go VFS inspects ancestor metadata while resolving its own tmp

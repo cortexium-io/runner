@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 13 {
+	if version < 0 || version > 14 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -230,6 +230,17 @@ ALTER TABLE attempts_v13 RENAME TO attempts;
 PRAGMA user_version=13; COMMIT;`); e != nil {
 			return nil, e
 		}
+		version = 13
+	}
+	if version == 13 {
+		// Linked follow-ups retain completed source families without reopening
+		// their result. Older readers must not ignore this retention authority.
+		if _, e = db.Exec(`BEGIN;
+CREATE INDEX followup_parent ON runs(json_extract(CAST(data AS TEXT),'$.followup.run_id'));
+CREATE INDEX task_graph_root ON runs(json_extract(CAST(data AS TEXT),'$.task_graph.root_run_id'));
+PRAGMA user_version=14; COMMIT;`); e != nil {
+			return nil, e
+		}
 	}
 	if e = os.Chmod(path, 0600); e != nil {
 		return nil, e
@@ -311,10 +322,17 @@ func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts
 }
 
 func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade bool) error {
-	return s.saveRunAuthorized(ctx, tx, r, artifacts, receipt, handoffUpgrade, false, false)
+	return s.saveRunAuthorized(ctx, tx, r, artifacts, receipt, saveAuthorization{handoffUpgrade: handoffUpgrade})
 }
 
-func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade, continuation, recovery bool) error {
+type saveAuthorization struct {
+	handoffUpgrade bool
+	continuation   bool
+	recovery       bool
+	followup       bool
+}
+
+func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, authority saveAuthorization) error {
 	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
@@ -331,10 +349,13 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
-	if err := s.guardTaskContinuationSave(ctx, tx, r, previous, continuation); err != nil {
+	if err := s.guardTaskContinuationSave(ctx, tx, r, previous, authority.continuation); err != nil {
 		return err
 	}
-	if err := guardTaskRecoverySave(r, previous, recovery); err != nil {
+	if err := guardTaskRecoverySave(r, previous, authority.recovery); err != nil {
+		return err
+	}
+	if err := guardTaskFollowupSave(r, previous, authority.followup); err != nil {
 		return err
 	}
 	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, artifacts, receipt); err != nil {
@@ -352,7 +373,7 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data,definition) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,definition=excluded.definition", r.ID, r.ProjectID, b, definition); e != nil {
 		return e
 	}
-	if e = s.saveAttempts(ctx, tx, r, attempts, previous, handoffUpgrade); e != nil {
+	if e = s.saveAttempts(ctx, tx, r, attempts, previous, authority.handoffUpgrade); e != nil {
 		return e
 	}
 	for _, a := range artifacts {
@@ -457,7 +478,11 @@ func (s *Store) Artifact(ctx context.Context, id string) (runner.Artifact, error
 }
 func (s *Store) HasConsumers(ctx context.Context, id string) (bool, error) {
 	var n int
-	e := s.db.QueryRowContext(ctx, `SELECT count(*) FROM artifacts a JOIN artifact_uses u ON u.artifact=a.id WHERE a.run_id=? AND u.run_id!=?`, id, id).Scan(&n)
+	e := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+SELECT 1 FROM artifacts a JOIN artifact_uses u ON u.artifact=a.id WHERE a.run_id=? AND u.run_id!=?
+UNION ALL SELECT 1 FROM runs source JOIN runs follower
+ON json_extract(CAST(follower.data AS TEXT),'$.followup.run_id')=json_extract(CAST(source.data AS TEXT),'$.task_graph.root_run_id')
+WHERE source.id=?)`, id, id, id).Scan(&n)
 	return n > 0, e
 }
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -467,6 +492,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 	if e = guardTaskContinuationDelete(ctx, tx, []string{id}); e != nil {
+		return e
+	}
+	if e = s.guardTaskFollowupDelete(ctx, tx, []string{id}); e != nil {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM artifact_uses WHERE run_id=?", id); e != nil {

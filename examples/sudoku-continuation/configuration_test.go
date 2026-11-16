@@ -16,7 +16,7 @@ import (
 func TestGeneratedSudokuContinuationLoadsWithPreservedLegacyProject(t *testing.T) {
 	// Node reads these fixtures, so register them with Go's test cache too.
 	// Otherwise a changed role/process can reuse a previous loader result.
-	for _, name := range []string{"roles.mjs", "process.json"} {
+	for _, name := range []string{"roles.mjs", "process.json", "followup.mjs", "configure.mjs"} {
 		if _, err := os.ReadFile(name); err != nil {
 			t.Fatal(err)
 		}
@@ -31,6 +31,7 @@ func TestGeneratedSudokuContinuationLoadsWithPreservedLegacyProject(t *testing.T
 	}
 	root := t.TempDir()
 	script := `import {roleDefinitions} from './roles.mjs';
+import {followupRoles,followupProcess} from './followup.mjs';
 import {readFile} from 'node:fs/promises';
 const root=process.argv[1],binary=process.argv[2];
 const runtime={
@@ -45,14 +46,22 @@ const runtime={
  selectors:['src/board.test.ts'],patchSHA256:'c'.repeat(64),checkSHA256:'d'.repeat(64),
  exclude:'docs/evidence,docs/benchmarks,docs/design,mobile/evidence',include:'docs/benchmarks/fixture.json'
 };
-process.stdout.write(JSON.stringify({roles:roleDefinitions(runtime),process:JSON.parse(await readFile('process.json','utf8'))}));`
+const roles=roleDefinitions(runtime),processDefinition=JSON.parse(await readFile('process.json','utf8'));
+const parent={id:'run_accepted',project_id:'sudoku-preview',status:'Completed',resources_released:true,revision:7,
+ repository:root,attempts:[{id:'attempt_accepted',state:'finished',released:true}],task_graph:{root_run_id:'run_accepted'},
+ inputs:{patch:{artifact_id:'attempt_original/changes.patch'},checks:{artifact_id:'attempt_check/result'}},
+ roles:Object.fromEntries(roles.map(role=>[role.id,role])),process:processDefinition};
+const followup=followupProcess(parent),extraRoles=followupRoles(parent,{checker:binary,preview:root+'/followup-preview',
+ requestFile:root+'/followup-request.json',priorSHA256:'e'.repeat(64)});
+process.stdout.write(JSON.stringify({roles:[...roles,...extraRoles],process:processDefinition,followup}));`
 	output, err := exec.CommandContext(t.Context(), node, "--input-type=module", "-e", script, root, binary).CombinedOutput()
 	if err != nil {
 		t.Fatalf("generate example documents: %s: %v", output, err)
 	}
 	var documents struct {
-		Roles   []runner.Role  `json:"roles"`
-		Process runner.Process `json:"process"`
+		Roles    []runner.Role  `json:"roles"`
+		Process  runner.Process `json:"process"`
+		Followup runner.Process `json:"followup"`
 	}
 	if err = json.Unmarshal(output, &documents); err != nil {
 		t.Fatal(err)
@@ -73,10 +82,11 @@ process.stdout.write(JSON.stringify({roles:roleDefinitions(runtime),process:JSON
 		roles[role.ID] = runner.RoleBinding{File: role.ID + ".json"}
 	}
 	write("process.json", documents.Process)
+	write("followup-process.json", documents.Followup)
 	write("preview.json", runner.ProjectFile{
 		ID: "sudoku-preview", Name: "Configured preview", Workspace: root,
 		DefaultProcess: documents.Process.ID,
-		Processes:      map[string]string{documents.Process.ID: "process.json"}, Roles: roles,
+		Processes:      map[string]string{documents.Process.ID: "process.json", documents.Followup.ID: "followup-process.json"}, Roles: roles,
 	})
 	write("legacy-role.json", runner.Role{
 		ID: "legacy", Inputs: map[string]string{"request": "text"}, Outputs: map[string]string{"result": "text"},
@@ -111,5 +121,11 @@ process.stdout.write(JSON.stringify({roles:roleDefinitions(runtime),process:JSON
 		loaded.Instance.Concurrency != 1 || loaded.Instance.MaxActiveAttempts != 2 || len(loaded.Projects) != 2 ||
 		project.Processes[documents.Process.ID].Tasks.MaxTasks != 20 {
 		t.Fatal("loader changed the example's fixed result, admission or task contract")
+	}
+	admission := project.Roles["sudoku-followup-admit"].Execution.Command
+	if len(project.Processes) != 2 || len(project.Processes[documents.Followup.ID].Inputs) != 5 ||
+		admission.Args[2] != "admit-followup" || admission.Result != "domain.json" || admission.Artifact != "handoff.json" || admission.Network ||
+		project.Roles["sudoku-followup-developer"].Execution.Model != project.Roles["sudoku-developer"].Execution.Model {
+		t.Fatal("loader changed linked follow-up admission, inputs or native profile")
 	}
 }

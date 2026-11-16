@@ -191,3 +191,76 @@ node --check examples/sudoku-continuation/configure.mjs
 node --test examples/sudoku-continuation/configure.test.mjs
 make check PACKAGES='./examples/sudoku-continuation'
 ```
+
+## Follow-up after an accepted preview
+
+An accepted general-task root remains Completed. New owner feedback uses the
+normal `Start`/`run` path with `followup:{run_id,revision}`; it does not reopen
+that result, reset spending or replay the original legacy continuation. Core
+authenticates the exact completed parent, project/workspace and permitted
+artifact inheritance in the existing store. The parent and its evidence remain
+retained while linked follow-ups refer to them.
+
+`followup.mjs` stages a `followup-sudoku-preview` process in an overlay of the
+same project. It preserves all existing roles, process references, defaults and
+other configured projects. New native roles copy the actual amended parent
+profiles, including models, capability selection and input/output bounds;
+new instructions govern ordinary follow-up work. Nothing is submitted or
+installed by the builder, and no source/dependency workspace is copied.
+
+```sh
+node examples/sudoku-continuation/followup.mjs \
+  --instance /absolute/live/config/instance.json \
+  --parent-inspect /absolute/owner-inputs/parent-inspect.json \
+  --root /absolute/new/followup-delivery \
+  --request-file /absolute/owner-inputs/request.json \
+  --checker /absolute/qualified/runner-sudoku-check \
+  --prior-artifact attempt_ACCEPTED_CHECK/result \
+  --prior-sha256 FULL_ACCEPTED_ARCHIVE_SHA256 \
+  --handoff-artifact attempt_ORIGINAL_IMPORT/result
+```
+
+The complete revised request JSON becomes root request text. Both fixed commands
+use `--request {goal}`: the adapter supplies an immutable read-only file containing
+the authoritative `TaskContext.Goal`, independently of model-selected child
+inputs. The JSON must carry the original agreement and explicit latest amendments,
+rather than just a summary. Its `accepted_candidate` identifies `check_artifact`,
+`check_sha256` and `handoff_artifact` from real parent-family outputs. The builder
+checks that these match the selected intake artifacts/hash. The output includes staged instance/project paths and
+`requests/followup.json` for the owner-authorized start; CLI uses
+`--followup-run` and `--followup-revision` alongside the ordinary project,
+process, inputs and artifact flags. Native images and earlier proof remain
+canonical at their existing paths. Normal checker `--preview-root` holds separate
+goal-hash directories, preserving prior accepted previews and their metadata.
+
+Install the process once. A later owner request uses the same configured process
+with its newly completed parent, current evidence IDs and a new complete goal;
+no role/configuration rewrite is required. The builder intentionally refuses to
+replace an existing follow-up namespace. New goal/artifact/hash values belong
+to the owner start request, never to static checker arguments.
+
+The first fixed task, ID `import`, now performs read-only source admission:
+`runner-sudoku-check --mode admit-followup` authenticates the accepted archive,
+current source manifest and original handoff before forwarding the unchanged
+handoff receipt. It runs no tests/build/browser, copies no source and restores
+nothing. Authentication failure fails the command and never returns a ready
+domain report or handoff, so dependent developers cannot start on unverified
+source. Later checks retain the existing
+`{dependency.import.artifact}` binding.
+
+Known owner corrections can then receive a developer and protected checker
+without another baseline build. Developers run only relevant focused tests.
+The lead observes actual protected results before admitting independent source
+and personally viewed visual reviews. Current acceptance still requires both
+engine/viewport coverage, all required journeys/neighbors and explicit
+request-specific feedback proof, clean scratch settlement, exact source and
+matching independent approvals. Prior acceptance establishes the starting
+candidate; it does not approve later edits. The retained preview carries no
+merge, production or native release-gate waiver.
+
+Configuration-only checks:
+
+```sh
+node --test examples/sudoku-continuation/followup.test.mjs
+make check PACKAGES='./examples/sudoku-continuation'
+```

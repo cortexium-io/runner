@@ -46,16 +46,24 @@ func TestNormalizedHistoryHasNoHiddenAggregateAttemptCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 13 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 14 {
 		t.Fatalf("general task physical attempt range lacks its versioned schema: %d %v", version, err)
 	}
 }
 
 func TestGeneralTaskSchemaUpgradePreservesRetainedBytes(t *testing.T) {
-	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
+	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := normalizedRun(2)
 			s := openNormalized(t, r)
+			// Restore the actual earlier schema, including absence of the
+			// follow-up retention index, before exercising its upgrade.
+			if _, err := s.db.Exec("DROP INDEX followup_parent"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec("DROP INDEX task_graph_root"); err != nil {
+				t.Fatal(err)
+			}
 			query := "SELECT runs.data,runs.definition,attempts.data FROM runs JOIN attempts ON attempts.run_id=runs.id WHERE runs.id=? AND attempts.position=1"
 			var state, definition, attempt []byte
 			if err := s.db.QueryRow(query, r.ID).Scan(&state, &definition, &attempt); err != nil {
@@ -94,7 +102,7 @@ PRAGMA user_version=3; COMMIT;`); err != nil {
 				t.Fatalf("schema migration rewrote retained data: %v", err)
 			}
 			var marker int
-			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 13 {
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 14 {
 				t.Fatalf("native-policy downgrade guard missing: version=%d error=%v", marker, err)
 			}
 		})
