@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,recordFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,paintedLockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,recordFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,guideControlFacts,visitSudokuGuide,assertSudokuGuide,paintedLockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
@@ -14,13 +14,13 @@ const report={schema:1,status:'failed',complete:false,browser_closed:false,engin
   'Chromium hold/cancel uses trusted CDP touch; WebKit exposes trusted taps but no public hold/cancel touch API, so its hold/move cancellation uses a trusted mouse pointer.',
   'Secondary offscreen actions use browser scrolling before trusted clicks/taps; primary touch geometry is checked without automatic scrolling.',
   'Metrics do not judge branding, hierarchy, icon style, spacing or visual quality. Independent full viewport image review is mandatory.',
-  'At most four additional failure-state images supplement the80 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
+  'At most two additional failure-state images supplement the82 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
   'Both authored best-effort telemetry POST channels retain 4xx/transport diagnostics; every API5xx, required/unclassified HTTP error and page exception still blocks acceptance. Diagnostics do not establish analytics health.',
   'HTTP diagnostic bodies are read only with an uncompressed declared size at most1KiB; raw bodies, puzzle codes, queries and full referrers are never retained.',
   'Diagnostic-body capture timeouts retain unavailable facts and a count; they do not establish analytics health or fail gameplay. Real cleanup failures remain blocking.',
   'Trusted visible blur/focus is exercised through Chromium page activation with its focus override disabled. Public Playwright WebKit focus activation is unsupported; its browser focus behavior and native Safari/physical window activation remain unverified. Candidate-bound play-clock regressions are also required.',
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
-report.owner_feedback={contract:'sudoku-owner-feedback-2026-11-16',layout_observations:0,locked_exhausted:[],desktop_hints:[],focus_timer:[],focus_capabilities:[]};
+report.owner_feedback={contract:'sudoku-owner-feedback-2026-11-16',layout_observations:0,locked_exhausted:[],desktop_hints:[],guides:[],focus_timer:[],focus_capabilities:[]};
 report.telemetry_contract=telemetryContract;
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
 let activeBrowser,current,activeCase,stopping=false,imageBytes=0,profile=0;
@@ -34,7 +34,7 @@ const functionalJourneys=['entry-pin-cancel-history','touch-in-progress-resize',
 const save=()=>writeFile(path.join(options.evidence,'browser.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
 const pauseForHold=()=>new Promise(resolve=>setTimeout(resolve,900)); // Actual gesture duration exceeds the app's 750ms touch threshold; never a readiness sleep.
 const bounded=boundedFailure;
-const failures=()=>[report.journeys,report.neighbors,report.geometry,report.prerequisites].reduce((n,rows)=>n+rows.filter(row=>row.status!=='passed').length,0)+report.errors.length;
+const failures=()=>[report.journeys,report.neighbors,report.geometry,report.prerequisites].reduce((n,rows)=>n+rows.filter(row=>row.status!=='passed').length,0)+report.errors.length+report.document_failures.length;
 
 async function check(engine,id,action,{rows=report.journeys,failureStatus='failed'}={}) {
   const row={engine,id,status:'failed'};
@@ -68,12 +68,12 @@ async function capture(page,engine,state) {
 }
 
 async function failedState(page,row,key,{planned}={}) {
+  if(row.failure_image)return;
   row.observations=structuredClone(observations.get(page)??[]);
   try {row.failure_state=await page.evaluate(interactionFacts,'.sudoku-play .puzzle-board')}catch{}
-  if(row.failure_image)return;
   const group=`${row.engine}/${key}`;
   if(!planned&&failureImages.has(group)){row.failure_image={representative:failureImages.get(group)};return}
-  if(!planned&&failureImages.size>=4){row.failure_image={omitted:'four additional failure images already retained'};return}
+  if(!planned&&failureImages.size>=2){row.failure_image={omitted:'two additional failure images already retained'};return}
   try {
     const name=await capture(page,row.engine,planned??key+'-failure');
     row.failure_image={name,viewport:page.viewportSize(),phase:row.phase??row.id};
@@ -118,11 +118,11 @@ async function contextFor(browser,viewport,scheme='light') {
   const page=await context.newPage();
   current=page;
   page.setDefaultTimeout(browserTimeoutMS);
-  page.on('pageerror',error=>{if(report.errors.length<30)report.errors.push({engine:browser.browserType().name(),message:bounded(error.message)})});
-  page.on('request',request=>{
+  context.on('weberror',event=>{if(report.errors.length<30)report.errors.push({engine:browser.browserType().name(),message:bounded(event.error().message)})});
+  context.on('request',request=>{
     const url=new URL(request.url());
     if(url.origin!==options.origin||!url.pathname.startsWith('/api/'))return;
-    try{requestFacts.set(request,apiRequestFacts(request,{document:page.url(),journey:activeCase?.id??'fresh-geometry',viewport:page.viewportSize(),origin:options.origin}))}
+    try{const initiator=request.frame().page();requestFacts.set(request,apiRequestFacts(request,{document:initiator.url(),journey:activeCase?.id??'fresh-geometry',viewport:initiator.viewportSize(),origin:options.origin}))}
     catch{requestFacts.set(request,{method:request.method(),path:url.pathname,initiator:{unavailable:'request facts could not be collected'}})}
   });
   const retainFailure=(failure,response)=>{
@@ -134,7 +134,7 @@ async function contextFor(browser,viewport,scheme='light') {
     const work=apiResponseFacts(response,controller.signal).then(facts=>{failure.response=facts}).catch(()=>{failure.response={body:'unavailable',reason:'response facts could not be collected'}});
     pendingResponses.set(work,controller);work.then(()=>pendingResponses.delete(work));
   };
-  page.on('response',response=>{
+  context.on('response',response=>{
     const url=new URL(response.url());
     if(url.origin===options.origin&&response.status()>=400&&['document','script','stylesheet'].includes(response.request().resourceType())&&report.document_failures.length<12)
       report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:response.request().resourceType(),status:response.status()});
@@ -145,7 +145,7 @@ async function contextFor(browser,viewport,scheme='light') {
       retainFailure(failure,response);
     }
   });
-  page.on('requestfailed',request=>{
+  context.on('requestfailed',request=>{
     const url=new URL(request.url());
     if(url.origin===options.origin&&['document','script','stylesheet'].includes(request.resourceType())&&report.document_failures.length<12)
       report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:request.resourceType(),message:boundedFailure(request.failure()?.errorText,500)});
@@ -535,8 +535,26 @@ async function keyboardJourney(browser,engine,recipe) {
     const hintProof={engine,viewport:desktop.id,requested:true,explanation_characters:desktopHint.explanation.length,
       image:await capture(page,engine,'desktop-hint-why-light')};
     report.owner_feedback.desktop_hints.push(hintProof);
-    return {short_window:[viewport.width,viewport.height],digit:true,undo:true,arrows_focus:true,notes_erase:true,givens_protected:true,tab_exit:true,desktop_hint:hintProof,input};
+    const guide=await guideJourney(page,engine);
+    return {short_window:[viewport.width,viewport.height],digit:true,undo:true,arrows_focus:true,notes_erase:true,givens_protected:true,tab_exit:true,desktop_hint:hintProof,guide,input};
   });
+}
+
+async function guideJourney(page,engine) {
+  const before=await state(page);
+  try {
+    const proof=await visitSudokuGuide(page,target=>action(page,target,false,{secondary:true}),async guide=>{
+      try {
+        const proof=assertSudokuGuide(await guide.evaluate(guideControlFacts));
+        proof.image=await capture(guide,engine,'desktop-sudoku-guide-light');
+        return proof;
+      } catch(error){if(activeCase)await failedState(guide,activeCase,'sudoku-guide');throw error}
+    },closeContext);
+    report.owner_feedback.guides.push({engine,...proof});
+    return proof;
+  } finally {
+    samePlay(await state(page),before,{focus:false});
+  }
 }
 
 async function focusClock(engine,page) {
@@ -716,7 +734,7 @@ try {
     required_journeys:20,missing_journeys:missingJourneys,required_neighbors:3,observed_neighbors:report.neighbors.length};
   try{report.owner_feedback.focus_complete=assertFocusCoverage(report.owner_feedback)}
   catch(error){report.owner_feedback.focus_complete=false;report.owner_feedback.focus_failure=bounded(error)}
-  report.owner_feedback.complete=report.owner_feedback.layout_observations===expectedGeometry&&report.owner_feedback.locked_exhausted.length===4&&report.owner_feedback.desktop_hints.length===2&&report.owner_feedback.focus_complete;
+  report.owner_feedback.complete=report.owner_feedback.layout_observations===expectedGeometry&&report.owner_feedback.locked_exhausted.length===4&&report.owner_feedback.desktop_hints.length===2&&report.owner_feedback.guides.length===2&&report.owner_feedback.focus_complete;
   report.coverage.complete=report.engines.length===2&&report.geometry.length===expectedGeometry&&missingJourneys.length===0&&report.neighbors.length===3&&report.owner_feedback.complete;
   report.status=report.unrun.length||!report.coverage.complete?'blocked':failures()===0?'passed':'failed';
 } catch(error){report.failure=bounded(error.message)}

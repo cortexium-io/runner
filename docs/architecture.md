@@ -94,6 +94,14 @@ the board's right half or match its exact edge. Failed geometry and journey rows
 retain the same measured layout facts before rejection, so correction does not
 depend on guessing from a short assertion message.
 
+The reviewed Sudoku follow-up also requires an intact heading from actual text
+Range line geometry and a real play-to-guide popup journey in both engines. Guide
+content is checked for current pin/exit semantics, with wording flexibility.
+Context-level network/error observation covers the popup's initial document once;
+both the browser aggregate and Go evidence consumer reject required document or
+runtime failures. These checks reuse the existing 20 journeys and add two guide
+images within the unchanged evidence limits.
+
 Source tasks use one canonical project workspace. Absolute physical claims
 serialize overlapping writers and readers, including nested roots, existing
 symlink prefixes and case-insensitive host identity. Disjoint writers can overlap.

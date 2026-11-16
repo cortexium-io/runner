@@ -43,6 +43,17 @@ func TestBrowserPassCannotOmitTheFixedCoverage(t *testing.T) {
 	}
 }
 
+func TestBrowserPassCannotHideRequiredDocumentFailure(t *testing.T) {
+	data := []byte(`{"schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},"document_failures":[{"engine":"chromium","path":"/how-to-play/sudoku","type":"document","status":500}]}`)
+	var p report
+	if err := recordBrowserReport(&p, data, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != "blocked" || !strings.Contains(p.Failure, "runtime or document failures") || p.Browser["document_failures"] != 1 || p.Browser["first_document_failure"] == nil {
+		t.Fatal("a failed guide document was recorded but accepted as a browser pass", p.Status, p.Browser)
+	}
+}
+
 func TestBrowserPassCannotOmitCurrentOwnerFeedbackProof(t *testing.T) {
 	var p report
 	data := []byte(`{"schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},"owner_feedback":{"complete":false,"layout_observations":146}}`)

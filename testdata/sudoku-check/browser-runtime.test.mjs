@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-import {chromiumFocusDriver,paintedLockedDigitFacts,assertExhaustedHighlight,feedbackLayoutFacts,assertFeedbackLayout} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {chromiumFocusDriver,paintedLockedDigitFacts,assertExhaustedHighlight,feedbackLayoutFacts,assertFeedbackLayout,guideControlFacts,visitSudokuGuide,assertSudokuGuide} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 // Opt-in, model-free qualification using the configured headless runtimes.
 // No application, source tree, server, persistent profile or network is used.
@@ -88,6 +88,7 @@ test('configured browser focus, paint and play-header helpers',{
             <div class="input-tools"><button>Undo</button></div>
           </main>`);
           const facts=await page.evaluate(feedbackLayoutFacts),proof=assertFeedbackLayout(facts);
+          assert.equal(facts.heading.runs.length,1,'actual title text Range did not produce one line');
           assert.equal(facts.header_content.x,14);assert.equal(facts.header_content.right,306);
           assert.ok(proof.action_group.right>facts.frame.right+1,'fixture did not extend past the narrower fitted board');
           const check=page.getByRole('button',{name:'Check',exact:true});
@@ -103,7 +104,39 @@ test('configured browser focus, paint and play-header helpers',{
           const disabled=await page.evaluate(feedbackLayoutFacts);
           assert.equal(disabled.actions[0].target.hit,false);
           assert.equal(assertFeedbackLayout(disabled).compact_right_board_actions,true);
+          await page.locator('.play-heading h1').evaluate(node=>{Object.assign(node.style,{width:'14px',wordBreak:'break-all',lineHeight:'.6'})});
+          const wrapped=await page.evaluate(feedbackLayoutFacts);
+          assert.ok(wrapped.heading.runs.length>1&&wrapped.heading.runs[1][1]<wrapped.heading.runs[0][3],'fixture did not create overlapping wrapped text boxes');
+          assert.throws(()=>assertFeedbackLayout(wrapped),/heading wraps/);
           t.diagnostic(JSON.stringify({engine,header_content:facts.header_content,board:facts.board,action_group:proof.action_group,covered_rejected:true,disabled_pointer_transparent_allowed:true}));
+        } finally {await context.close()}
+      });
+      await t.test(engine+' follows the real guide popup, observes its initial document and closes failed visits',async()=>{
+        const context=await browser.newContext(contextOptions);
+        let status=200,documents=0,webErrors=0,transport=false;
+        context.on('response',response=>{if(response.url()==='https://runner.invalid/how-to-play/sudoku'&&response.request().isNavigationRequest())documents++});
+        context.on('weberror',()=>webErrors++);
+        await context.route('https://runner.invalid/**',route=>transport?route.abort('failed'):route.fulfill({status,contentType:'text/html',body:route.request().url().includes('/how-to-play/')?
+          '<main class="guide-page"><h1>How to play Sudoku</h1><section id="controls"><p>Hold a digit and release to pin it.</p><p>Tap the pinned digit to exit. Escape clears pinned entry.</p></section></main><script>throw Error("owned popup fixture")</script>':
+          '<main class="sudoku-play"><details class="play-help"><summary>Help · How to play</summary><a href="/how-to-play/sudoku" target="_blank">Full Sudoku guide</a></details></main>'}));
+        try {
+          const page=await context.newPage();page.setDefaultTimeout(5000);await page.goto('https://runner.invalid/');
+          const activate=async target=>{await target.scrollIntoViewIfNeeded();await target.click()};
+          const proof=await visitSudokuGuide(page,activate,async guide=>assertSudokuGuide(await guide.evaluate(guideControlFacts)));
+          assert.equal(proof.document_status,200);assert.equal(context.pages().length,1);
+          await assert.rejects(visitSudokuGuide(page,activate,async()=>{throw Error('owned validation failure')}),/owned validation failure/);
+          assert.equal(context.pages().length,1,'guide survived validation-failure cleanup');
+          status=503;
+          await assert.rejects(visitSudokuGuide(page,activate,async()=>{throw Error('must not inspect a failed document')}),/document did not return success/);
+          assert.equal(context.pages().length,1,'guide survived HTTP-failure cleanup');
+          status=404;
+          await assert.rejects(visitSudokuGuide(page,activate,async()=>{throw Error('must not inspect a failed document')}),/document did not return success/);
+          assert.equal(context.pages().length,1,'guide survived 404 cleanup');
+          transport=true;
+          await assert.rejects(visitSudokuGuide(page,activate,async()=>{throw Error('must not inspect a failed transport')}),/document transport failed/);
+          assert.equal(context.pages().length,1,'guide survived transport-failure cleanup');
+          assert.equal(documents,4,'initial popup document was missed or observed twice');assert.equal(webErrors,4,'owned popup script error was missed or observed twice');
+          t.diagnostic(JSON.stringify({engine,guide:proof.path,document_status:proof.document_status,initial_documents:documents,web_errors:webErrors,failed_validation_closed:true,failed_document_blocked:true,failed_transport_blocked:true}));
         } finally {await context.close()}
       });
     } finally {

@@ -113,6 +113,7 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		}
 	}
 	p.Browser["neighbors"], p.Browser["neighbors_failed"], p.Browser["neighbor_failures"] = len(browser.Neighbors), len(neighborFailures), neighborFailures
+	p.Browser["document_failures"] = len(browser.DocumentFailures)
 	for _, rows := range [][]browserCase{browser.Prerequisites, browser.Journeys, browser.Neighbors, browser.Geometry} {
 		for _, row := range rows {
 			if row.Status != "passed" && row.Failure != "" && p.Browser["first_failure"] == nil {
@@ -147,6 +148,8 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		p.Status, p.Failure = "blocked", "browser collection is incomplete; "+p.Failure
 	} else if browser.Status == "passed" && (!browser.Coverage.Complete || len(browser.Unrun) != 0) {
 		p.Status, p.Failure = "blocked", "browser pass lacks the complete fixed coverage"
+	} else if browser.Status == "passed" && (len(browser.Errors) != 0 || len(browser.DocumentFailures) != 0) {
+		p.Status, p.Failure = "blocked", "browser pass contains required runtime or document failures"
 	} else if browser.Status == "passed" && browser.OwnerFeedback != nil && browser.OwnerFeedback["complete"] != true {
 		p.Status, p.Failure = "blocked", "browser pass lacks the complete current owner-feedback proof"
 	} else if browser.Status == "passed" && browser.OwnerFeedback != nil &&

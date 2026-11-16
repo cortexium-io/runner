@@ -98,6 +98,20 @@ viewport and enabled-target hit tests retained. Failed rows preserve those facts
 The current candidate is not accepted by this rule change: a fresh protected
 check and independent visual judgment remain required in the same linked root.
 
+After that check passed, both configured reviewers rejected the narrow heading's
+broken word and the guide's obsolete hold-to-highlight/Unlock highlight text.
+Runner automatically dispatched a scoped header/guide repair. The protected
+verifier now measures actual single-line heading text (including tight-line-height
+wrapping) and follows the real help link to the rendered guide in both engines.
+It requires current hold/release-to-pin, tap-to-exit and keyboard-exit semantics,
+preserves game state, and closes the popup through the existing response-draining
+cleanup. Context-level observation replaces page-only listeners, covering initial
+popup document failures exactly once; the Go consumer also rejects a claimed
+browser pass containing required runtime/document errors. Existing 146 geometry,
+20 journey and three neighbor obligations remain, with 82 normal images under
+the unchanged 84-image/88-entry/evidence-byte ceilings. Disposable HTML fixtures
+qualify these tool boundaries; product repair and acceptance remain inside Runner.
+
 ### Optional total-work limits, authorized 16 November 2026
 
 The owner explicitly chose to disable both aggregate execution and total

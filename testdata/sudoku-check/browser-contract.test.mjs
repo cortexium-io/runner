@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,recordFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,recordFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertSudokuGuide,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -201,6 +201,7 @@ test('in-play New refuses absent or ambiguous actual controls',async()=>{
 function feedbackLayout(){return {
   board:{x:20,y:100,width:350,right:370},frame:{x:10,y:90,width:370,right:380},primary_height:60,
   header:{x:10,y:40,width:370,height:50,right:380,bottom:90},header_count:1,header_content:{x:10,y:40,right:380,bottom:90},
+  heading:{count:1,text:'Sudoku',box:[10,50,100,82],runs:[[10,50,95,76]]},
   actions:[{label:'Check',count:1,rect:{x:220,y:50,width:70,height:32,right:290,bottom:82},font:14,inside_primary:false,inside_header:true,target:{enabled:true,in_viewport:true,hit:true}},
     {label:'Restart',count:1,rect:{x:300,y:50,width:80,height:32,right:380,bottom:82},font:14,inside_primary:false,inside_header:true,target:{enabled:true,in_viewport:true,hit:true}}],
   repeated_entry:false,more_actions:false,unlock_highlight:false,lock_prose:false,
@@ -270,6 +271,36 @@ test('the shared failure recorder preserves measured layout and existing interac
   const pointer=Error('covered');pointer.interaction=interaction;
   const pointerRow={};recordFailure(pointerRow,pointer);
   assert.equal(pointerRow.interaction,interaction);assert.equal('feedback_layout' in pointerRow,false);
+});
+
+test('actual heading text geometry rejects word wrapping, clipping and action overlap without specifying typography',()=>{
+  const wrapped=feedbackLayout();wrapped.heading.runs=[[10,50,65,70],[10,70,35,90]];
+  assert.throws(()=>assertFeedbackLayout(wrapped),/heading wraps/);
+  wrapped.heading.runs=[[10,50,65,80],[10,74,35,104]];
+  assert.throws(()=>assertFeedbackLayout(wrapped),/heading wraps/);
+  const clipped=feedbackLayout();clipped.heading.box[2]=60;
+  assert.throws(()=>assertFeedbackLayout(clipped),/heading text overflows/);
+  const overlap=feedbackLayout();overlap.heading.box=[10,50,300,82];overlap.heading.runs=[[220,50,280,76]];
+  assert.throws(()=>assertFeedbackLayout(overlap),/heading overlaps/);
+  const styled=feedbackLayout();styled.heading.box=[10,44,200,86];styled.heading.runs=[[10,44,150,86]];
+  assert.equal(assertFeedbackLayout(styled).compact_right_board_actions,true);
+});
+
+function guideFacts(){return {path:'/how-to-play/sudoku',title:'How to play Sudoku',controls_visible:true,removed_unlock_present:false,
+  paragraphs:['Hold a pad digit, then release to pin it for repeated entry.','Tap the pinned digit again to exit. Press Escape to clear pinned entry.']}}
+
+test('rendered guide acceptance requires current pin and exit semantics while allowing equivalent wording',()=>{
+  assert.equal(assertSudokuGuide(guideFacts()).removed_unlock_absent,true);
+  const alternate=guideFacts();alternate.paragraphs=['Long-press a number and let go to pin it.','Click the same number to stop repeated entry. Esc returns to cell-first entry.'];
+  assert.equal(assertSudokuGuide(alternate).escape_exit,true);
+  const unlock=guideFacts();unlock.removed_unlock_present=true;
+  assert.throws(()=>assertSudokuGuide(unlock),/removed Unlock/);
+  for(const paragraphs of [['Tap the pinned digit to exit. Escape clears it.'],['Hold and release to pin a digit. Escape clears it.'],['Hold and release to pin a digit. Tap the pinned digit to exit.']]) {
+    assert.throws(()=>assertSudokuGuide({...guideFacts(),paragraphs}),/guide lacks/);
+  }
+  const wrong=guideFacts();wrong.path='/how-to-play/suguru';
+  assert.throws(()=>assertSudokuGuide(wrong),/did not navigate/);
+  assert.throws(()=>assertSudokuGuide({...guideFacts(),controls_visible:false}),/controls are unavailable/);
 });
 
 test('a locked completed digit must retain lime while visibly and semantically disabled',()=>{

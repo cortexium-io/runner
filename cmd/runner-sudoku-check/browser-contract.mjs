@@ -17,7 +17,7 @@ export function boundedFailure(error,limit=1400) {
 
 export function recordFailure(row,error) {
   row.failure=boundedFailure(error);
-  for(const kind of ['interaction','feedback_layout'])if(error[kind])row[kind]=error[kind];
+  for(const kind of ['interaction','feedback_layout','guide'])if(error[kind])row[kind]=error[kind];
 }
 
 // Read-only facts describe the actual target and browser scroll state. Disabled
@@ -153,6 +153,15 @@ export function feedbackLayoutFacts() {
     headerContent={x:r.x+px('borderLeftWidth')+px('paddingLeft'),y:r.y+px('borderTopWidth')+px('paddingTop'),
       right:r.right-px('borderRightWidth')-px('paddingRight'),bottom:r.bottom-px('borderBottomWidth')-px('paddingBottom')};
   }
+  const headings=[...(header?.querySelectorAll('h1')??[])].filter(visible),title=headings[0],titleRuns=[];
+  if(title) {
+    const walker=document.createTreeWalker(title,NodeFilter.SHOW_TEXT);
+    for(let node;node=walker.nextNode();)if(node.textContent.trim()) {
+      const range=document.createRange();range.selectNodeContents(node);
+      for(const r of range.getClientRects())if(r.width>0&&r.height>0)titleRuns.push([r.x,r.y,r.right,r.bottom]);
+    }
+  }
+  const titleBox=rect(title);
   const buttons=[...(play?.querySelectorAll('button')??[])].filter(visible);
   const actions=['Check','Restart'].map(label=>{
     const found=buttons.filter(node=>(node.getAttribute('aria-label')??node.textContent).trim()===label);
@@ -166,6 +175,7 @@ export function feedbackLayoutFacts() {
   const primary=[...(play?.querySelectorAll('.input-tools button')??[])].filter(visible).map(node=>node.getBoundingClientRect().height);
   const text=play?.textContent??'';
   return {board:rect(board),frame:rect(board?.closest('.player-board-frame')),header:rect(header),header_count:headers.length,header_content:headerContent,
+    heading:{count:headings.length,text:title?.textContent.trim()??'',box:titleBox?[titleBox.x,titleBox.y,titleBox.right,titleBox.bottom]:null,runs:titleRuns},
     actions,primary_height:primary.length?Math.min(...primary):0,
     repeated_entry:!!play?.querySelector('.pin-option')||/Repeated entry/i.test(play?.querySelector('.play-settings')?.textContent??''),
     more_actions:!!play?.querySelector('.more-puzzle-actions')||/More actions/i.test(text),
@@ -179,6 +189,13 @@ export function assertFeedbackLayout(facts) {
     for(const name of ['repeated_entry','more_actions','unlock_highlight','lock_prose'])assert.equal(facts[name],false,`removed Sudoku UI remains: ${name}`);
     assert.ok(facts.board&&facts.frame,'actual board/frame are required for secondary-action geometry');
     assert.ok(facts.header&&facts.header_count===1&&facts.header_content,'one actual play header is required for secondary-action placement');
+    const heading=facts.heading;
+    assert.ok(heading?.count===1&&heading.text==='Sudoku'&&heading.box&&heading.runs.length>0,'one rendered Sudoku heading is required');
+    // PlayerHeading renders a plain text game name. Its text Range yields a
+    // distinct origin for each wrapped line, even when glyph boxes overlap
+    // because line-height is smaller than the font's ascent/descent.
+    assert.ok(heading.runs.every(r=>r[1]===heading.runs[0][1]),'Sudoku heading wraps across multiple lines');
+    assert.ok(heading.runs.every(r=>r[0]>=heading.box[0]&&r[2]<=heading.box[2]&&r[0]>=facts.header_content.x&&r[2]<=facts.header_content.right),'Sudoku heading text overflows its available header space');
     assert.deepEqual(facts.actions.map(action=>action.label),['Check','Restart'],'Check and Restart measurements are required');
     for(const action of facts.actions) {
       assert.equal(action.count,1,`one visible ${action.label} action is required`);
@@ -196,11 +213,70 @@ export function assertFeedbackLayout(facts) {
     const bounds=facts.header_content;
     assert.ok(group.x>=bounds.x&&group.right<=bounds.right&&group.y>=bounds.y&&group.bottom<=bounds.bottom,'Check and Restart group is outside the usable play header');
     assert.ok(bounds.right-group.right<group.x-bounds.x,'Check and Restart group is not on the right of the play header');
+    assert.ok(heading.runs.every(r=>r[2]<=group.x||r[0]>=group.right||r[3]<=group.y||r[1]>=group.bottom),'Sudoku heading overlaps Check or Restart');
     return {removed_controls_absent:true,compact_right_board_actions:true,...facts,action_group:group};
   } catch(error) {
     error.feedback_layout={...facts,...(group?{action_group:group}:{})};
     throw error;
   }
+}
+
+export function guideControlFacts() {
+  const guide=document.querySelector('.guide-page'),controls=guide?.querySelector('#controls');
+  const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility==='visible';
+  return {path:location.pathname,title:guide?.querySelector('h1')?.textContent.trim()??'',
+    controls_visible:!!controls&&!!visible(controls),
+    removed_unlock_present:/Unlock\s+highlight/i.test(guide?.innerText??''),
+    paragraphs:[...(controls?.querySelectorAll('p')??[])].filter(visible).map(node=>node.innerText.trim()).filter(Boolean)};
+}
+
+export async function visitSudokuGuide(page,activate,inspect,close=guide=>guide.close()) {
+  const help=page.locator('.sudoku-play .play-help');
+  if(await help.getAttribute('open')===null)await activate(help.locator(':scope > summary'));
+  let guide;
+  const opened=page.waitForEvent('popup').then(popup=>{guide=popup;return popup});
+  const destination=new URL('/how-to-play/sudoku',page.url()).href;
+  const documentResponse=page.context().waitForEvent('response',{predicate:response=>response.request().isNavigationRequest()&&response.url()===destination,timeout:12000});
+  const failedDocument=page.context().waitForEvent('requestfailed',{predicate:request=>request.isNavigationRequest()&&request.url()===destination,timeout:12000})
+    .then(()=>{throw Error('actual Sudoku guide document transport failed')});
+  const navigated=Promise.race([documentResponse,failedDocument]);
+  // A failed activation can precede a popup timeout; context cleanup settles
+  // that observation too. Never leave a rejected event wait unobserved.
+  opened.catch(()=>{});
+  navigated.catch(()=>{});
+  try {
+    await activate(help.locator('a[href="/how-to-play/sudoku"]'));
+    const [popup,response]=await Promise.all([opened,navigated]);
+    guide=popup;guide.setDefaultTimeout(12000);
+    assert.ok(response.status()>=200&&response.status()<400,'actual Sudoku guide document did not return success');
+    await guide.waitForLoadState('domcontentloaded');
+    await guide.locator('.guide-page #controls').waitFor({state:'visible'});
+    await guide.locator('.guide-page #controls').evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+    await layoutReady(guide);
+    return {...await inspect(guide),document_status:response.status()};
+  } finally {
+    if(guide&&!guide.isClosed())await close(guide);
+    await page.bringToFront();
+  }
+}
+
+export function assertSudokuGuide(facts) {
+  try {
+    assert.equal(facts.path,'/how-to-play/sudoku','actual play link did not navigate to the Sudoku guide');
+    assert.match(facts.title,/\bSudoku\b/i,'rendered guide does not identify Sudoku');
+    assert.equal(facts.controls_visible,true,'rendered Sudoku guide controls are unavailable');
+    const text=facts.paragraphs.join('\n');
+    assert.equal(facts.removed_unlock_present,false,'rendered Sudoku guide contains the removed Unlock highlight control');
+    assert.doesNotMatch(text,/Unlock\s+highlight/i,'Sudoku guide still teaches the removed Unlock highlight control');
+    const pin=facts.paragraphs.find(p=>/hold|long[- ]press/i.test(p)&&/releas|let\s+go/i.test(p)&&/\bpin(?:ned|ning)?\b/i.test(p));
+    const exit=facts.paragraphs.find(p=>/tap|click/i.test(p)&&/\bpin(?:ned|ning)?\b|same\s+(?:digit|number)/i.test(p)&&/exit|clear|stop|leave|unpin|deselect|return.*cell.first/i.test(p));
+    const escape=facts.paragraphs.find(p=>/\bEsc(?:ape)?\b/i.test(p)&&/exit|clear|stop|leave|unpin|deselect|return.*cell.first/i.test(p));
+    assert.ok(pin,'Sudoku guide lacks hold/release-to-pin guidance');
+    assert.ok(exit,'Sudoku guide lacks tap/click-to-exit pinned entry guidance');
+    assert.ok(escape,'Sudoku guide lacks Escape exit guidance');
+    return {path:facts.path,title:facts.title,hold_release_pin:true,tap_exit:true,escape_exit:true,removed_unlock_absent:true,
+      guidance:[...new Set([pin,exit,escape])],controls_sha256:createHash('sha256').update(text).digest('hex')};
+  } catch(error){error.guide=facts;throw error}
 }
 
 export function lockedDigitFacts(node) {
