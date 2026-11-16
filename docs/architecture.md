@@ -148,6 +148,15 @@ change. Ordinary saves cannot amend the catalog. Startup verifies the canonical
 definition proof and receipt chain; schema 12 excludes readers that ignore these
 contracts. A proof written before an uncertain commit remains retained for safe
 reconciliation.
+
+`Core.AmendTaskRoles` also supports instruction-only owner intervention on a
+paused, quiescent general root without an allowance grant. It preserves the same
+definition-proof/receipt chain, unchanged spending and limits, historical child
+snapshots and retained root source. Active, unknown or unreleased attempts and
+pending reservations block amendment; it neither resumes nor dispatches work.
+SQLite schema 15 rejects readers that cannot validate this distinct receipt.
+Normal resume makes the amended instructions available to future children.
+
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
 existing rows. Schema six adds the native allocation/release compatibility boundary.

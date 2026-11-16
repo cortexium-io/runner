@@ -143,7 +143,8 @@ the future route. Keep the ad and Sudoku goals/workspaces separate and combine
 their project overlays into the actual current instance rather than installing
 an earlier configuration snapshot. No merge or production authority is granted.
 
-The bounded implementation is qualified but not installed while Sudoku is active.
+The bounded implementation was qualified before the normal Sudoku maintenance
+pause, then installed in the same cold installation as the role amendment below.
 Source-owned shared commands reuse the existing captured-candidate/ready-seed
 predicate and worker recovery; all selectable ordinary profiles retain workspace
 concurrency one. Future configuration connects the unchanged focused check,
@@ -205,9 +206,27 @@ checks, the complete execution workflow gate (389.511 seconds), and independent
 review pass. The four instruction contracts now agree on narrowly required
 non-generated existing-profile integration, focused Go proof and full backend
 source binding; profiles, models, permissions and all other roles are unchanged.
-The actual future configuration loads within the existing byte limits. This is
-maintenance qualification; installation and the same-root application/resume
-remain separate recorded actions, and no product acceptance is implied.
+The actual future configuration loads within the existing byte limits.
+
+The cold installation of `b0aa6b92e275c53fde4fb32e74415a96257dd761` preserved
+all 150 existing runs and every table row/schema fingerprint; only the SQLite
+compatibility marker changed from 14 to 15. Executable SHA-256 is
+`34e5d00341f1ad90ca556b3cb5aab0a174e66655d1e35566c680db42987fa91f`.
+The selected instance combines both project overlays without changing the running
+product source or prior history. Code Atlas verified the exact comparison from
+`3cbcb04ed30d531d4d3f56e0d6b827d108800c53` to that full candidate hash; it is
+static context, not product acceptance.
+
+Normal pause allowed the current check to settle. The authenticated amendment
+`sudoku-existing-profile-scope-amend-20261116` changed only the four agreed role
+instructions on the same root, revision 5193 to 5194. The dormant allowance stayed
+128 while effective total work remained unlimited; all prior child and attempt
+bytes were unchanged. Replay returned the same revision. Normal resume then
+returned product delegation, checking and repair to Runner. Canonical installation,
+amendment and replay receipts are in the intake's `maintenance/` directory.
+This is a maintenance intervention, so the live run cannot establish uninterrupted
+autonomous delivery. Product checks, independent review and preview acceptance
+remain separate obligations.
 
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
