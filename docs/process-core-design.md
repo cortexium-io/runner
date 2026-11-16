@@ -112,6 +112,28 @@ browser pass containing required runtime/document errors. Existing 146 geometry,
 the unchanged 84-image/88-entry/evidence-byte ceilings. Disposable HTML fixtures
 qualify these tool boundaries; product repair and acceptance remain inside Runner.
 
+**Completed 16 November.** Linked root `run_EWT4YUD2ZHZ2NPVBSLRWURPIFK`
+accepted source `b81d2dc8a0d860667e35a5e408420e6293855943b8c39ae2e3485c96b450f7d2`
+after 21 executions, all settled/released. Current protected proof passes 482
+frontend cases and typecheck, five build stages, 146 layout observations, 20
+journeys, three neighbor smokes and 82 captures. Independent source and visual
+reviews approve that exact source; the visual reviewer inspected every capture.
+The accepted executable is running at the existing loopback preview URL with the
+same database file/inode and origin. No merge, production or restoration occurred.
+
+This is not a clean unattended qualification: three qualified verifier holds or
+coverage extensions were required. Native product repair and both review cycles
+were coordinated by Runner. Wall time was 149.8 minutes: protected checks consumed
+61.5 accumulated execution minutes and development 47.5. The sealed Sudoku
+checker still repeats frontend/build work on verifier-only retries and requires
+qualified maintenance for new browser-proof obligations. Native cumulative usage
+and these limits remain explicit in the canonical report. Both total-work caps
+stay disabled; unchanged storage guards include 128 retained runs, with 120 at
+completion. Cleanup removed superseded executables, test scratch and 2.30 GB of
+old Go cache entries while preserving accepted artifacts and recent cache data.
+Final identities, review reports, native/emulated gaps, usage and preview ownership:
+`/Users/dan/Projects/runner-qualifications/20261116/sudoku-followup/result.md`.
+
 ### Optional total-work limits, authorized 16 November 2026
 
 The owner explicitly chose to disable both aggregate execution and total

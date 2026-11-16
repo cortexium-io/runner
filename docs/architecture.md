@@ -146,6 +146,15 @@ also required coordinator maintenance of the protected browser verifier, so this
 result does not establish unattended delivery. The [current completion record](process-core-design.md#live-sudoku-workflow-amendment-authorized-16-november-2026)
 links the exact source, proof, runtime and retained preview.
 
+Its normal linked follow-up completed on 16 November in 21 executions. It preserved
+the completed parent and canonical source, automatically handled two product
+repair/review cycles and obtained matching source/visual approvals after current
+482-case frontend proof, 146 geometry states, 20 journeys and 82 images. The same
+local preview was updated with its database/origin preserved. Qualified verifier
+maintenance was still needed; this does not establish unattended adaptation of
+the retained project's sealed browser checker. The [follow-up completion record](process-core-design.md#linked-accepted-task-follow-up-authorized-16-november-2026)
+retains actual runtime identities, cleanup, costs and remaining evidence limits.
+
 `execution/native*.go` adds opt-in Codex/Claude CLI profiles through the existing
 executor service. It uses ephemeral native sessions, a durable dispatch claim,
 lease and bounded receipt. Available/permitted/observed tools are distinct facts.
