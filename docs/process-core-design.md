@@ -339,6 +339,17 @@ Canonical installation/grant receipts are under
 The provenance repair is tracked in
 [Runner issue 131](https://github.com/cortexium-io/runner/issues/131).
 
+That fourth correction fixed the configured module-root binding and passed all
+16 focused tests. The subsequent project preflight stopped before browser
+scenarios: its Node package lookup cannot resolve the installed `tw-animate-css`
+1.4.0 CSS-only `style` export. Retained source/manifest diagnosis identifies a
+verifier resolution defect; zero browser scenarios or images establish no visual
+acceptance. Source inputs were unchanged by the check and cleanup settled. The
+same root is Failed at public revision 476 with all four correction uses spent.
+A second audited one-use recovery retaining the first grant is a new owner
+decision, not authority inferred from the first grant. Candidate, reports and the
+compact `retained-ad-blocker.json` remain in the canonical qualification directory.
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed
