@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+type revisionReplayStore struct {
+	Store
+	rows []Run
+}
+
+func (s revisionReplayStore) Load(context.Context) ([]Run, error) { return Clone(s.rows), nil }
+
+func TestCorrectionCurrentRouteCommittedReplayRestoresPublicFamilyRevision(t *testing.T) {
+	c, store, _, req := currentCardCorrectionFixture(t)
+	before := Clone(c.runs[req.RunID])
+	first, err := c.RecoverCorrections(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []Run{}
+	for _, row := range c.runs {
+		rows = append(rows, Clone(row))
+	}
+	// The receipt and committed row survived, but the process still has the
+	// pre-commit root snapshot after losing acknowledgement/reconciliation.
+	c.runs[before.ID] = before
+	c.store = revisionReplayStore{Store: store, rows: rows}
+	replay, err := c.RecoverCorrections(req)
+	if err != nil || replay.Revision != first.Revision || replay.Revision != req.Revision+1 || c.runs[before.ID].Revision != before.Revision+1 || store.saves != 1 || replay.RouteUses["check/changes_requested"] != 4 {
+		t.Fatal("committed replay returned private revision or spent another credit", err, replay.Revision)
+	}
+}
+
 type revisionCorrectionExecutor struct {
 	*budgetCorrectionExecutor
 	change func() error
