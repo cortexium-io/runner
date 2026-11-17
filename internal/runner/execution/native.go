@@ -19,21 +19,22 @@ import (
 )
 
 type harnessJob struct {
-	Assignment       runner.Assignment       `json:"assignment,omitzero"`
-	AttemptID        string                  `json:"attempt_id,omitempty"`
-	AssignmentFile   string                  `json:"assignment_file,omitempty"`
-	AssignmentLimit  runner.Bytes            `json:"assignment_limit,omitempty"`
-	Directory        string                  `json:"directory,omitempty"`
-	Workspace        *workspaceRecord        `json:"workspace,omitempty"`
-	Stage            string                  `json:"stage"`
-	StopRequested    bool                    `json:"stop_requested,omitempty"`
-	StopReason       string                  `json:"stop_reason,omitempty"`
-	ScratchDir       string                  `json:"scratch_dir,omitempty"`
-	ResultsFile      *runner.NativeInputFile `json:"results_file,omitempty"`
-	End              *runner.ExecutionEnd    `json:"end,omitempty"`
-	Usage            runner.Usage            `json:"usage"`
-	Effective        *runner.ExecutionFacts  `json:"effective,omitempty"`
-	ExecutionEndedAt time.Time               `json:"execution_ended_at,omitzero"`
+	Assignment         runner.Assignment       `json:"assignment,omitzero"`
+	AttemptID          string                  `json:"attempt_id,omitempty"`
+	AssignmentFile     string                  `json:"assignment_file,omitempty"`
+	AssignmentLimit    runner.Bytes            `json:"assignment_limit,omitempty"`
+	Directory          string                  `json:"directory,omitempty"`
+	Workspace          *workspaceRecord        `json:"workspace,omitempty"`
+	Stage              string                  `json:"stage"`
+	StopRequested      bool                    `json:"stop_requested,omitempty"`
+	StopReason         string                  `json:"stop_reason,omitempty"`
+	ScratchDir         string                  `json:"scratch_dir,omitempty"`
+	ResultsFile        *runner.NativeInputFile `json:"results_file,omitempty"`
+	RequestByReference bool                    `json:"request_by_reference,omitempty"`
+	End                *runner.ExecutionEnd    `json:"end,omitempty"`
+	Usage              runner.Usage            `json:"usage"`
+	Effective          *runner.ExecutionFacts  `json:"effective,omitempty"`
+	ExecutionEndedAt   time.Time               `json:"execution_ended_at,omitzero"`
 }
 
 // Native is the explicit opt-in CLI adapter. The existing restricted Codex
@@ -234,7 +235,15 @@ func (n *Native) Start(ctx context.Context, a runner.Assignment) (runner.Observa
 		a, err = sharedAssignment(a)
 		job.Assignment = a
 	} else {
-		job.Assignment, job.ResultsFile, resultBytes, err = planHarnessAssignment(a, filepath.Join(n.disk.Root, harnessControl(a.AttemptID)), a.Setup.Profile.MaxInput+n.disk.Policy.Database.MaxRecord)
+		control := filepath.Join(n.disk.Root, harnessControl(a.AttemptID))
+		job.Assignment, job.ResultsFile, resultBytes, err = planHarnessAssignment(a, control, job.AssignmentLimit)
+		if errors.Is(err, errHarnessInputBudget) && canReferenceOwnerBrief(a) {
+			err = validateHarnessOwnerBrief(n.disk, a)
+			if err == nil {
+				err = planHarnessOwnerBrief(a, control, job.AssignmentLimit)
+				job.RequestByReference = err == nil
+			}
+		}
 	}
 	if err == nil && (!commandGroupsSupported || a.Deadline.IsZero() || a.Limits.MaxLog < 1 || a.Limits.MaxRecord < 1 || !sharedCommand(a) && a.Setup.Profile.MaxOutput > a.Limits.MaxRecord/2) {
 		err = errors.New("native execution needs a supported platform, deadline, bounded logs and max_output at most half max_record")
@@ -452,19 +461,20 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 		return err
 	}
 	spec := harnessSpec{
-		AttemptID:      a.AttemptID,
-		AssignmentFile: filepath.Join(n.disk.Root, control, "assignment.json"),
-		MaxInput:       a.Setup.Profile.MaxInput,
-		Binary:         binary,
-		Directory:      job.Directory,
-		Control:        filepath.Join(n.disk.Root, control),
-		Root:           n.disk.Root,
-		Storage:        n.disk.Policy,
-		Owner:          rand.Text(),
-		ScratchDir:     job.ScratchDir,
-		Shared:         sharedCommand(*a),
-		ResultsFile:    job.ResultsFile,
-		Output:         output,
+		AttemptID:          a.AttemptID,
+		AssignmentFile:     filepath.Join(n.disk.Root, control, "assignment.json"),
+		MaxInput:           a.Setup.Profile.MaxInput,
+		Binary:             binary,
+		Directory:          job.Directory,
+		Control:            filepath.Join(n.disk.Root, control),
+		Root:               n.disk.Root,
+		Storage:            n.disk.Policy,
+		Owner:              rand.Text(),
+		ScratchDir:         job.ScratchDir,
+		Shared:             sharedCommand(*a),
+		ResultsFile:        job.ResultsFile,
+		RequestByReference: job.RequestByReference,
+		Output:             output,
 	}
 	data, err := json.Marshal(spec)
 	if err != nil {

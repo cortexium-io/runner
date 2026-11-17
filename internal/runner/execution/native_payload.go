@@ -64,11 +64,13 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 	}
 	scratch := filepath.Join(a.WorkDir, "harness", "tmp")
 	var resultsFile *runner.NativeInputFile
+	var requestByReference bool
 	if len(options) > 0 {
 		if options[0].Scratch != "" {
 			scratch = options[0].Scratch
 		}
 		resultsFile = options[0].Results
+		requestByReference = options[0].RequestByReference
 	}
 	instructions := harnessInstructions + "\n" + resultBudgetBase
 	type taskContext struct {
@@ -79,6 +81,14 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 	var context *taskContext
 	task, taskRef := a.Task, ""
 	var inputRefs map[string]string
+	if requestByReference {
+		if !canReferenceOwnerBrief(a) {
+			return "", nil, errors.New("native owner-brief reference needs a declared read-only review input")
+		}
+		delete(inputs, "request")
+		inputRefs = map[string]string{"request": "inputs.reference.path (JSON request field)"}
+		instructions += "\nRead the complete original request from the request field in the owner-brief JSON at inputs.reference.path. The brief's request matches the exact assigned request."
+	}
 	if a.TaskContext != nil {
 		instructions += "\n" + harnessTaskInstructions
 		context = &taskContext{TaskContext: runner.Clone(a.TaskContext), ResultsFile: runner.Clone(resultsFile)}

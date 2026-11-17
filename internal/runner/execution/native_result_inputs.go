@@ -15,8 +15,9 @@ import (
 )
 
 type harnessPayloadOptions struct {
-	Scratch string
-	Results *runner.NativeInputFile
+	Scratch            string
+	Results            *runner.NativeInputFile
+	RequestByReference bool
 }
 
 var errHarnessInputBudget = errors.New("native instructions, task context and inputs exceed max_input; nothing was truncated")

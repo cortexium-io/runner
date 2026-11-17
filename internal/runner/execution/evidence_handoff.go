@@ -184,15 +184,8 @@ func (s *Service) ValidateEvidenceHandoff(ctx context.Context, run runner.Run, r
 	if err != nil {
 		return err
 	}
-	var owner struct {
-		Version       int    `json:"version"`
-		Kind          string `json:"kind"`
-		Status        string `json:"status"`
-		Request       string `json:"request"`
-		RequestSHA256 string `json:"request_sha256"`
-		RequestBytes  int64  `json:"request_bytes"`
-	}
-	if json.Unmarshal(ownerBytes, &owner) != nil || owner.Version != 1 || owner.Kind != "owner-brief" || owner.Status != "ready" || strings.TrimSpace(owner.Request) == "" || owner.RequestBytes != int64(len(owner.Request)) || owner.RequestSHA256 != captureDigest([]byte(owner.Request)) {
+	owner, valid := decodeOwnerBrief(ownerBytes)
+	if !valid {
 		return bad
 	}
 	var request string

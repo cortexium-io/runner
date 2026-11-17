@@ -22,21 +22,22 @@ import (
 )
 
 type harnessSpec struct {
-	Assignment       runner.Assignment       `json:"assignment,omitzero"`
-	AttemptID        string                  `json:"attempt_id,omitempty"`
-	AssignmentFile   string                  `json:"assignment_file,omitempty"`
-	MaxInput         runner.Bytes            `json:"max_input,omitempty"`
-	Binary           string                  `json:"binary"`
-	Directory        string                  `json:"directory"`
-	Control          string                  `json:"control"`
-	Root             string                  `json:"root"`
-	Storage          runner.StoragePolicy    `json:"storage"`
-	Owner            string                  `json:"owner"`
-	ScratchDir       string                  `json:"scratch_dir,omitempty"`
-	Shared           bool                    `json:"shared,omitempty"`
-	ContextOverrides []string                `json:"-"`
-	ResultsFile      *runner.NativeInputFile `json:"results_file,omitempty"`
-	Output           *nativeOutputIdentity   `json:"output,omitempty"`
+	Assignment         runner.Assignment       `json:"assignment,omitzero"`
+	AttemptID          string                  `json:"attempt_id,omitempty"`
+	AssignmentFile     string                  `json:"assignment_file,omitempty"`
+	MaxInput           runner.Bytes            `json:"max_input,omitempty"`
+	Binary             string                  `json:"binary"`
+	Directory          string                  `json:"directory"`
+	Control            string                  `json:"control"`
+	Root               string                  `json:"root"`
+	Storage            runner.StoragePolicy    `json:"storage"`
+	Owner              string                  `json:"owner"`
+	ScratchDir         string                  `json:"scratch_dir,omitempty"`
+	Shared             bool                    `json:"shared,omitempty"`
+	ContextOverrides   []string                `json:"-"`
+	ResultsFile        *runner.NativeInputFile `json:"results_file,omitempty"`
+	RequestByReference bool                    `json:"request_by_reference,omitempty"`
+	Output             *nativeOutputIdentity   `json:"output,omitempty"`
 }
 
 type harnessReceipt struct {
@@ -233,7 +234,10 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 	if sharedCommand(a) {
 		a, err = sharedAssignment(a)
 	} else {
-		prompt, schema, err = harnessPayload(a, harnessPayloadOptions{Scratch: filepath.Join(spec.Control, "tmp"), Results: spec.ResultsFile})
+		prompt, schema, err = harnessPayload(a, harnessPayloadOptions{
+			Scratch: filepath.Join(spec.Control, "tmp"), Results: spec.ResultsFile,
+			RequestByReference: spec.RequestByReference,
+		})
 	}
 	if err != nil {
 		return err
@@ -272,6 +276,12 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 	claim.Close()
 	if err != nil {
 		return err
+	}
+	if spec.RequestByReference {
+		disk := &runner.Disk{Root: spec.Root, Policy: spec.Storage}
+		if err := validateHarnessOwnerBrief(disk, a); err != nil {
+			return err
+		}
 	}
 	ctx, cancel := context.WithDeadline(parent, a.Deadline)
 	defer cancel()
