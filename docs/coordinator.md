@@ -48,19 +48,26 @@ not approve the new goal. Publication/release authority does not transfer.
 
 An owner-authorized `recover-corrections --current-route` grant is independent of
 aggregate limits. Supply the exact run revision, saved rejection attempt,
-candidate/check SHA-256 and `--max-uses` equal to current route spending plus one.
-Only that exhausted source-correction backedge gains one use; original counters,
+candidate/check SHA-256 and `--max-uses` equal to current route spending plus the
+authorized correction count. Omit `--additional-uses` for the historical one-use
+grant, or supply an explicitly authorized positive count for a bounded phase.
+For example, five spent uses and `--additional-uses 3 --max-uses 8` allow the saved
+rejection to consume use six, followed by fresh owner/check cycles using seven
+and eight when needed. A rejection at eight stops; no ninth use is admitted.
+Only that exhausted source-correction backedge gains these uses; original counters,
 definitions, other retries and protected approvals remain unchanged. Reuse its
 request ID after uncertain responses. It cannot combine with `--within-budget`
 or source preservation.
 
 A separately authorized successive grant on the same exhausted route must also
-supply `--previous-request-id` naming the current grant. Each action still adds
-exactly one use and requires a fresh owner candidate and rejection, with the exact
-current public revision and hashes. Previous grants and context artifacts remain
-retained. Replaying either request reconciles durable state without another grant;
-it does not infer permission for a further correction. Omitted supplemental context
-retains the preceding grant's context and recipients.
+supply `--previous-request-id` naming the current grant. Its entire ceiling must
+be exhausted, with a fresh owner candidate and rejection, and the exact current
+public revision and hashes. The request and grant retain the explicit phase count;
+omitted counts on historical requests and grants remain one. Previous grants and
+context artifacts remain retained. Replaying either request reconciles durable
+state without another grant; it does not infer permission for a further phase.
+Changed counts conflict with the original request identity. Omitted supplemental
+context retains the preceding grant's context and recipients.
 
 When approved, `--context-file`, `--context-sha256` and `--context-roles` supply one
 bounded supplemental JSON artifact to explicit future source/review actors. This

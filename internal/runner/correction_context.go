@@ -89,7 +89,11 @@ func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (
 			continue
 		}
 		grant := correctionGrant(saved.CorrectionRecovery, req.RequestID)
-		if grant == nil || grant.AttemptID != req.AttemptID || grant.MaxUses != req.MaxUses || grant.CurrentRoute != req.CurrentRoute || saved.Revision < r.Revision {
+		additional := 0
+		if req.AdditionalUses != nil {
+			additional = *req.AdditionalUses
+		}
+		if grant == nil || grant.AttemptID != req.AttemptID || grant.MaxUses != req.MaxUses || grant.AdditionalUses != additional || grant.CurrentRoute != req.CurrentRoute || saved.Revision < r.Revision {
 			return Run{}, errors.New("committed correction recovery does not match its receipt")
 		}
 		if saved.Revision > r.Revision {

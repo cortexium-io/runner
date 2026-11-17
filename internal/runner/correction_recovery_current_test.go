@@ -73,16 +73,20 @@ func (s *correctionCommitStore) FindReceipt(ctx context.Context, id string) (run
 }
 
 func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testing.T) {
-	for _, scenario := range []string{"refused", "lost-ack", "lost-read", "successive-refused", "successive-lost-ack", "successive-lost-read"} {
-		mode := strings.TrimPrefix(scenario, "successive-")
+	for _, scenario := range []string{"refused", "lost-ack", "lost-read", "successive-refused", "successive-lost-ack", "successive-lost-read", "phase-successive-refused", "phase-successive-lost-ack", "phase-successive-lost-read"} {
+		mode := strings.TrimPrefix(strings.TrimPrefix(scenario, "phase-"), "successive-")
 		t.Run(scenario, func(t *testing.T) {
 			rig, cfg, before, req, executor, _ := correctionRecoveryRig(t, func(r *runner.Run, q *runner.RecoverCorrectionsRequest) {
 				currentCorrectionFixture(r, q)
-				if strings.HasPrefix(scenario, "successive-") {
+				if strings.Contains(scenario, "successive-") {
 					r.CorrectionRecovery = &runner.CorrectionRecovery{RequestID: "prior-grant", AttemptID: "prior-check", PatchID: "prior-owner/changes.patch", CurrentRoute: true, Route: "check/changes_requested", PreviousUses: 3, MaxUses: 4, RouteLimits: map[string]int{"check/changes_requested": 4}}
 					r.RouteUses["check/changes_requested"] = 4
 					q.PreviousRequestID = "prior-grant"
 					q.MaxUses = 5
+				}
+				if strings.HasPrefix(scenario, "phase-") {
+					additional := 3
+					q.AdditionalUses, q.MaxUses = &additional, q.MaxUses+2
 				}
 			})
 			var first runner.RecoverCorrectionsRequest
@@ -114,7 +118,7 @@ func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testin
 						t.Fatal("refused commit granted work")
 					}
 				}
-				if scenario == "successive-lost-read" {
+				if strings.Contains(scenario, "successive-lost-read") {
 					oldReplay, replayErr := core.RecoverCorrections(first)
 					if replayErr != nil || oldReplay.CorrectionRecovery.RequestID != req.RequestID || oldReplay.RouteUses["check/changes_requested"] != 5 {
 						t.Fatal("older receipt did not reconcile committed newer grant", replayErr)
@@ -122,7 +126,7 @@ func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testin
 				}
 				recovered, err = core.RecoverCorrections(req)
 			}
-			if err != nil || recovered.CorrectionRecovery == nil || recovered.RouteUses["check/changes_requested"] != req.MaxUses || !reflect.DeepEqual(recovered.CorrectionRecovery.Previous, before.CorrectionRecovery) {
+			if err != nil || recovered.CorrectionRecovery == nil || recovered.RouteUses["check/changes_requested"] != before.RouteUses["check/changes_requested"]+1 || !reflect.DeepEqual(recovered.CorrectionRecovery.Previous, before.CorrectionRecovery) || recovered.CorrectionRecovery.MaxUses != req.MaxUses {
 				t.Fatal("same request did not reconcile one grant", err)
 			}
 			select {
@@ -202,6 +206,35 @@ func TestCorrectionRecoveryCurrentRoutePreservesSpendingAndScopedContext(t *test
 	changed.RequestID = "second-grant"
 	if _, err := rig.core.RecoverCorrections(changed); err == nil {
 		t.Fatal("second grant accepted")
+	}
+}
+
+func TestCorrectionRecoveryPhaseCountSurvivesSQLiteRestartAndReplay(t *testing.T) {
+	rig, cfg, _, req, executor, dir := correctionRecoveryRig(t, func(r *runner.Run, q *runner.RecoverCorrectionsRequest) {
+		currentCorrectionFixture(r, q)
+		additional := 3
+		q.AdditionalUses, q.MaxUses = &additional, 6
+	})
+	defer func() { rig.close() }()
+	first, err := rig.core.RecoverCorrections(req)
+	if err != nil || first.CorrectionRecovery.AdditionalUses != 3 || first.RouteUses["check/changes_requested"] != 4 {
+		t.Fatal("phase did not record three uses while consuming only the first", err)
+	}
+	receipt, err := rig.store.FindReceipt(t.Context(), req.RequestID)
+	var saved runner.RecoverCorrectionsRequest
+	if err != nil || json.Unmarshal(receipt.Args, &saved) != nil || saved.AdditionalUses == nil || *saved.AdditionalUses != 3 {
+		t.Fatal("durable receipt lost explicit count", err)
+	}
+	rig.close()
+	rig = openRig(t, dir, cfg, func(runner.Executor) runner.Executor { return executor })
+	replay, err := rig.core.RecoverCorrections(req)
+	if err != nil || !reflect.DeepEqual(replay.CorrectionRecovery, first.CorrectionRecovery) || replay.RouteUses["check/changes_requested"] != 4 {
+		t.Fatal("restart replay replaced phase or consumed another use", err)
+	}
+	changed := runner.Clone(req)
+	changed.AdditionalUses = nil
+	if _, err := rig.core.RecoverCorrections(changed); err == nil {
+		t.Fatal("restart accepted an omitted count for the explicit phase receipt")
 	}
 }
 

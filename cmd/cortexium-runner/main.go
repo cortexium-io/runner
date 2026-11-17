@@ -80,12 +80,13 @@ func run(ctx context.Context, args []string) error {
 	bindingsSHA := fs.String("bindings-sha256", "", "authenticated read-only card recovery preflight digest")
 	reasonSHA := fs.String("reason-sha256", "", "exact blocked source reason digest for owner-adjudicated handoff")
 	preflight := fs.Bool("preflight", false, "read-only unpublished-card recovery preflight; no grant or dispatch")
-	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses: legacy recovery requires 3; --current-route requires current spent + 1")
+	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses: legacy recovery requires 3; --current-route requires current spent + additional-uses")
+	additionalUses := fs.Int("additional-uses", 1, "explicit positive current-route correction count (default one)")
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
 	withinBudget := fs.Bool("within-budget", false, "grant retry or source-correction allowance from the existing total attempt budget")
-	currentRoute := fs.Bool("current-route", false, "owner-authorized one additional use of only the exact exhausted source-correction route")
+	currentRoute := fs.Bool("current-route", false, "owner-authorized bounded additional uses of only the exact exhausted source-correction route")
 	previousRequest := fs.String("previous-request-id", "", "exact previous current-route grant for an explicitly authorized successive recovery")
 	contextFile := fs.String("context-file", "", "bounded owner-supplied supplemental correction JSON")
 	contextSHA := fs.String("context-sha256", "", "exact SHA256 of supplemental correction JSON")
@@ -108,6 +109,15 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	var additionalCorrectionUses *int
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "additional-uses" {
+			additionalCorrectionUses = additionalUses
+		}
+	})
+	if additionalCorrectionUses != nil && (command != "recover-corrections" || !*currentRoute || *additionalUses < 1) {
+		return errors.New("--additional-uses requires recover-corrections --current-route and a positive count")
 	}
 	var followup *runner.TaskFollowupRequest
 	if *followupRun != "" || *followupRevision != 0 {
@@ -238,7 +248,7 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("current-route and correction context flags require recover-corrections")
 	}
 	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || !*withinBudget && !*currentRoute && *maxUses != 3 || *withinBudget && (*maxUses != 0 || *preserveSource || *currentRoute) || *currentRoute && (*revision < 1 || *maxUses < 1 || *patchSHA256 == "" || *checkSHA256 == "" || *preserveSource) || *profile != "" || *extra != 0 || *cleanupOnly) {
-		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3 or --within-budget without --max-uses; alternatively --current-route requires exact revision, patch/check SHA256 and one-use local ceiling")
+		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3 or --within-budget without --max-uses; alternatively --current-route requires exact revision, patch/check SHA256 and a bounded local ceiling")
 	}
 	if command == "recover-collection" && (*runID == "" || *attemptID == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-collection requires --run and --attempt; it grants no retry allowance, profile or preservation override")
@@ -441,6 +451,7 @@ func run(ctx context.Context, args []string) error {
 			RunID:             *runID,
 			AttemptID:         *attemptID,
 			MaxUses:           *maxUses,
+			AdditionalUses:    additionalCorrectionUses,
 			WithinBudget:      *withinBudget,
 			PreserveSource:    *preserveSource,
 			CurrentRoute:      *currentRoute,

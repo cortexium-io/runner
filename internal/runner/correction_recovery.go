@@ -14,6 +14,7 @@ type RecoverCorrectionsRequest struct {
 	RunID             string                  `json:"run_id"`
 	AttemptID         string                  `json:"attempt_id"`
 	MaxUses           int                     `json:"max_uses"`
+	AdditionalUses    *int                    `json:"additional_uses,omitempty"`
 	PreserveSource    bool                    `json:"preserve_source,omitempty"`
 	WithinBudget      bool                    `json:"within_budget,omitempty"`
 	CurrentRoute      bool                    `json:"current_route,omitempty"`
@@ -27,12 +28,14 @@ type RecoverCorrectionsRequest struct {
 // CorrectionRecovery is one owner-authorized operational escalation. The
 // frozen process, cumulative route uses and all original attempt limits remain
 // unchanged. Legacy recovery permits three total uses per recorded backedge;
-// budget mode extends only the current backedge while protecting completion.
+// budget mode protects completion, and current-route mode records a bounded
+// explicit correction count (historically one) for only the exhausted backedge.
 type CorrectionRecovery struct {
 	RequestID         string                     `json:"request_id"`
 	AttemptID         string                     `json:"attempt_id"`
 	Reason            string                     `json:"reason"`
 	MaxUses           int                        `json:"max_uses"`
+	AdditionalUses    int                        `json:"additional_uses,omitempty"`
 	RouteLimits       map[string]int             `json:"route_limits"`
 	PatchID           string                     `json:"patch_id"`
 	GrantedAt         time.Time                  `json:"granted_at"`
@@ -145,6 +148,9 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	var artifacts []Artifact
 	if req.CurrentRoute {
 		grant := r.CorrectionRecovery
+		if req.AdditionalUses != nil {
+			grant.AdditionalUses = *req.AdditionalUses
+		}
 		grant.Revision = req.Revision
 		grant.Route = r.Process.Steps[r.Step].ID + "/changes_requested"
 		grant.PreviousUses = r.RouteUses[grant.Route]
@@ -212,7 +218,10 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		if req.WithinBudget || req.PreserveSource || req.Revision < 1 || req.Revision != c.outputRun(r).Revision || !validCorrectionSHA(req.PatchSHA256) || !validCorrectionSHA(req.CheckSHA256) {
 			return reject("current_route requires exact observed family revision, patch/check SHA256 and settled source, without other recovery modes")
 		}
-	} else if req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil || req.PreviousRequestID != "" {
+		if req.AdditionalUses != nil && *req.AdditionalUses < 1 {
+			return reject("additional_uses must be positive")
+		}
+	} else if req.AdditionalUses != nil || req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil || req.PreviousRequestID != "" {
 		return reject("exact correction bindings and supplemental context require current_route")
 	} else if req.WithinBudget {
 		if req.MaxUses != 0 || req.PreserveSource || r.Task != nil {
@@ -239,11 +248,15 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	if !eligible || !req.WithinBudget && !req.CurrentRoute && route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
 		return reject("current failure is not an exhausted eligible source-correction route")
 	}
-	if req.CurrentRoute && req.MaxUses != r.RouteUses[key]+1 {
-		return reject("current_route permits exactly one additional use of only the exhausted route")
+	additional := 1
+	if req.AdditionalUses != nil {
+		additional = *req.AdditionalUses
+	}
+	if req.CurrentRoute && !correctionUseCeiling(r.RouteUses[key], additional, req.MaxUses) {
+		return reject("current_route requires max_uses equal to spent uses plus additional_uses (default one), without overflow")
 	}
 	if previous := r.CorrectionRecovery; previous != nil {
-		if !req.CurrentRoute || req.PreviousRequestID == "" || req.PreviousRequestID != previous.RequestID || !previous.CurrentRoute || previous.WithinBudget || previous.Route != key || len(previous.RouteLimits) != 1 || previous.RouteLimits[key] != previous.MaxUses || previous.MaxUses != previous.PreviousUses+1 || r.RouteUses[key] != previous.MaxUses || a.ID == previous.AttemptID {
+		if !req.CurrentRoute || req.PreviousRequestID == "" || req.PreviousRequestID != previous.RequestID || !previous.CurrentRoute || previous.WithinBudget || previous.Route != key || len(previous.RouteLimits) != 1 || previous.RouteLimits[key] != previous.MaxUses || !validCorrectionUseCeiling(previous) || r.RouteUses[key] != previous.MaxUses || a.ID == previous.AttemptID {
 			return reject("successive recovery requires the exact exhausted previous current-route grant and a fresh rejection")
 		}
 	} else if req.PreviousRequestID != "" {
@@ -408,10 +421,24 @@ func sourceCorrectionRoute(r Run, index int) (Route, bool) {
 	return Route{}, false
 }
 
+// Subtract only after establishing ordered nonnegative bounds, so an explicit
+// count cannot wrap an int and accidentally authorize a different ceiling.
+func correctionUseCeiling(spent, additional, maximum int) bool {
+	return spent >= 0 && additional > 0 && maximum > spent && maximum-spent == additional
+}
+
+func validCorrectionUseCeiling(grant *CorrectionRecovery) bool {
+	additional := grant.AdditionalUses
+	if additional == 0 { // Historical grants omitted the one-use count.
+		additional = 1
+	}
+	return correctionUseCeiling(grant.PreviousUses, additional, grant.MaxUses)
+}
+
 func routeLimit(r Run, index int, outcome string, route Route) int {
 	if outcome == "changes_requested" && r.CorrectionRecovery != nil {
 		key := r.Process.Steps[index].ID + "/" + outcome
-		if recovery := r.CorrectionRecovery; recovery.CurrentRoute && !recovery.WithinBudget && recovery.Route == key && recovery.MaxUses == recovery.PreviousUses+1 && recovery.RouteLimits[key] == recovery.MaxUses {
+		if recovery := r.CorrectionRecovery; recovery.CurrentRoute && !recovery.WithinBudget && recovery.Route == key && validCorrectionUseCeiling(recovery) && len(recovery.RouteLimits) == 1 && recovery.RouteLimits[key] == recovery.MaxUses {
 			if _, ok := sourceCorrectionRoute(r, index); ok {
 				return recovery.MaxUses
 			}

@@ -26,7 +26,13 @@ func successiveCorrectionFixture(t *testing.T) (*Core, *frontendRecheckStore, Ru
 	r = Clone(c.runs[r.ID])
 	next := Clone(first)
 	next.RequestID, next.PreviousRequestID = "second-explicit-one-use-grant", first.RequestID
-	next.AttemptID, next.Revision, next.MaxUses = r.Current().ID, c.outputRun(r).Revision, 5
+	bindSuccessiveCorrectionRequest(t, c, r, &next)
+	return c, store, r, first, next
+}
+
+func bindSuccessiveCorrectionRequest(t *testing.T, c *Core, r Run, next *RecoverCorrectionsRequest) {
+	t.Helper()
+	next.AttemptID, next.Revision, next.MaxUses = r.Current().ID, c.outputRun(r).Revision, r.RouteUses["check/changes_requested"]+1
 	for id, target := range map[string]*string{r.StepInputs["patch"].ArtifactID: &next.PatchSHA256, r.Current().End.Result.Outputs["artifact"].ArtifactID: &next.CheckSHA256} {
 		data, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
 		if err != nil {
@@ -34,7 +40,6 @@ func successiveCorrectionFixture(t *testing.T) (*Core, *frontendRecheckStore, Ru
 		}
 		*target = correctionDigest(data)
 	}
-	return c, store, r, first, next
 }
 
 func TestCorrectionSuccessiveGrantPreservesHistoryReplayAndExactBound(t *testing.T) {

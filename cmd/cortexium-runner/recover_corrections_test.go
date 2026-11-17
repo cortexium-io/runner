@@ -131,6 +131,35 @@ func TestRecoverCorrectionsCLIUsesExactSavedAttemptAndTotalLimit(t *testing.T) {
 	if got := <-requests; !reflect.DeepEqual(got, want) {
 		t.Fatal("exact current-route/context request changed", got)
 	}
+	additional := 3
+	want.AdditionalUses, want.MaxUses = &additional, 8
+	want.RequestID = "approved-three-use-phase"
+	args = append(args, "--additional-uses", "3", "--max-uses", "8", "--request-id", want.RequestID)
+	for range 2 {
+		if err := run(t.Context(), args); err != nil {
+			t.Fatal(err)
+		}
+		if got := <-requests; !reflect.DeepEqual(got, want) {
+			t.Fatal("explicit phase count changed through CLI/MCP", got)
+		}
+	}
+}
+
+func TestRecoverCorrectionsCLIRejectsInvalidPhaseCounts(t *testing.T) {
+	base := []string{"recover-corrections", "--data", t.TempDir(), "--run", "saved-run", "--attempt", "saved-check"}
+	for _, extra := range [][]string{
+		{"--current-route", "--additional-uses", "0"},
+		{"--current-route", "--additional-uses", "-1"},
+		{"--within-budget", "--additional-uses", "3"},
+		{"--max-uses", "3", "--additional-uses", "3"},
+	} {
+		if err := run(t.Context(), append(append([]string{}, base...), extra...)); err == nil || !strings.Contains(err.Error(), "--additional-uses requires") {
+			t.Fatal("invalid count reached credentials/service", extra, err)
+		}
+	}
+	if err := run(t.Context(), []string{"retry", "--data", t.TempDir(), "--additional-uses", "3"}); err == nil || !strings.Contains(err.Error(), "--additional-uses requires") {
+		t.Fatal("phase count reached another command", err)
+	}
 }
 
 func TestRecoverCorrectionsCLIRejectsConflictingBudgetGrants(t *testing.T) {
