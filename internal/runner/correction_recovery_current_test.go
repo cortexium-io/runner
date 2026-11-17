@@ -73,9 +73,18 @@ func (s *correctionCommitStore) FindReceipt(ctx context.Context, id string) (run
 }
 
 func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testing.T) {
-	for _, mode := range []string{"refused", "lost-ack", "lost-read"} {
-		t.Run(mode, func(t *testing.T) {
-			rig, cfg, before, req, executor, _ := correctionRecoveryRig(t, currentCorrectionFixture)
+	for _, scenario := range []string{"refused", "lost-ack", "lost-read", "successive-refused", "successive-lost-ack", "successive-lost-read"} {
+		mode := strings.TrimPrefix(scenario, "successive-")
+		t.Run(scenario, func(t *testing.T) {
+			rig, cfg, before, req, executor, _ := correctionRecoveryRig(t, func(r *runner.Run, q *runner.RecoverCorrectionsRequest) {
+				currentCorrectionFixture(r, q)
+				if strings.HasPrefix(scenario, "successive-") {
+					r.CorrectionRecovery = &runner.CorrectionRecovery{RequestID: "prior-grant", AttemptID: "prior-check", PatchID: "prior-owner/changes.patch", CurrentRoute: true, Route: "check/changes_requested", PreviousUses: 3, MaxUses: 4, RouteLimits: map[string]int{"check/changes_requested": 4}}
+					r.RouteUses["check/changes_requested"] = 4
+					q.PreviousRequestID = "prior-grant"
+					q.MaxUses = 5
+				}
+			})
 			rig.core.Close()
 			store := &correctionCommitStore{Store: rig.store, mode: mode}
 			core, err := runner.New(t.Context(), store, executor, rig.disk, cfg)
@@ -92,13 +101,13 @@ func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testin
 				}
 				if mode == "refused" {
 					got, _ := core.Get(before.ID)
-					if got.CorrectionRecovery != nil || got.Status != "Failed" || got.RouteUses["check/changes_requested"] != 3 {
+					if !reflect.DeepEqual(got.CorrectionRecovery, before.CorrectionRecovery) || got.Status != "Failed" || got.RouteUses["check/changes_requested"] != before.RouteUses["check/changes_requested"] {
 						t.Fatal("refused commit granted work")
 					}
 				}
 				recovered, err = core.RecoverCorrections(req)
 			}
-			if err != nil || recovered.CorrectionRecovery == nil || recovered.RouteUses["check/changes_requested"] != 4 {
+			if err != nil || recovered.CorrectionRecovery == nil || recovered.RouteUses["check/changes_requested"] != req.MaxUses || !reflect.DeepEqual(recovered.CorrectionRecovery.Previous, before.CorrectionRecovery) {
 				t.Fatal("same request did not reconcile one grant", err)
 			}
 			select {

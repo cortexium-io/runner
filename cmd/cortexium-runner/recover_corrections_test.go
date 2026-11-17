@@ -80,14 +80,15 @@ func TestRecoverCorrectionsCLIUsesExactSavedAttemptAndTotalLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = runner.RecoverCorrectionsRequest{
-		RequestID:    "approved-single-current-route",
-		RunID:        "saved-run",
-		AttemptID:    "saved-source-check",
-		CurrentRoute: true,
-		Revision:     407,
-		MaxUses:      4,
-		PatchSHA256:  strings.Repeat("a", 64),
-		CheckSHA256:  strings.Repeat("b", 64),
+		RequestID:         "approved-single-current-route",
+		PreviousRequestID: "prior-explicit-grant",
+		RunID:             "saved-run",
+		AttemptID:         "saved-source-check",
+		CurrentRoute:      true,
+		Revision:          407,
+		MaxUses:           4,
+		PatchSHA256:       strings.Repeat("a", 64),
+		CheckSHA256:       strings.Repeat("b", 64),
 		Context: &runner.CorrectionContextInput{
 			Content: string(content),
 			Bytes:   int64(len(content)),
@@ -108,6 +109,7 @@ func TestRecoverCorrectionsCLIUsesExactSavedAttemptAndTotalLimit(t *testing.T) {
 		"--request-id",
 		want.RequestID,
 		"--current-route",
+		"--previous-request-id", want.PreviousRequestID,
 		"--revision",
 		"407",
 		"--max-uses",

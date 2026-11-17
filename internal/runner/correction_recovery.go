@@ -10,20 +10,21 @@ import (
 )
 
 type RecoverCorrectionsRequest struct {
-	RequestID      string                  `json:"request_id"`
-	RunID          string                  `json:"run_id"`
-	AttemptID      string                  `json:"attempt_id"`
-	MaxUses        int                     `json:"max_uses"`
-	PreserveSource bool                    `json:"preserve_source,omitempty"`
-	WithinBudget   bool                    `json:"within_budget,omitempty"`
-	CurrentRoute   bool                    `json:"current_route,omitempty"`
-	Revision       int64                   `json:"revision,omitempty"`
-	PatchSHA256    string                  `json:"patch_sha256,omitempty"`
-	CheckSHA256    string                  `json:"check_sha256,omitempty"`
-	Context        *CorrectionContextInput `json:"context,omitempty"`
+	RequestID         string                  `json:"request_id"`
+	RunID             string                  `json:"run_id"`
+	AttemptID         string                  `json:"attempt_id"`
+	MaxUses           int                     `json:"max_uses"`
+	PreserveSource    bool                    `json:"preserve_source,omitempty"`
+	WithinBudget      bool                    `json:"within_budget,omitempty"`
+	CurrentRoute      bool                    `json:"current_route,omitempty"`
+	Revision          int64                   `json:"revision,omitempty"`
+	PatchSHA256       string                  `json:"patch_sha256,omitempty"`
+	CheckSHA256       string                  `json:"check_sha256,omitempty"`
+	Context           *CorrectionContextInput `json:"context,omitempty"`
+	PreviousRequestID string                  `json:"previous_request_id,omitempty"`
 }
 
-// CorrectionRecovery is a single owner-authorized operational escalation. The
+// CorrectionRecovery is one owner-authorized operational escalation. The
 // frozen process, cumulative route uses and all original attempt limits remain
 // unchanged. Legacy recovery permits three total uses per recorded backedge;
 // budget mode extends only the current backedge while protecting completion.
@@ -48,6 +49,7 @@ type CorrectionRecovery struct {
 	DefinitionSHA256  string                     `json:"definition_sha256,omitempty"`
 	Context           *CorrectionContext         `json:"context,omitempty"`
 	FromVisit         int                        `json:"from_visit,omitempty"`
+	Previous          *CorrectionRecovery        `json:"previous,omitempty"`
 }
 
 type SourcePreservationReceipt struct {
@@ -123,6 +125,7 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	if _, _, _, err := c.correctionRecovery(req); err != nil {
 		return Run{}, err
 	}
+	previous := r.CorrectionRecovery
 	r.CorrectionRecovery = &CorrectionRecovery{
 		RequestID:    req.RequestID,
 		AttemptID:    req.AttemptID,
@@ -134,6 +137,10 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 		Preservation: preservation,
 		WithinBudget: req.WithinBudget,
 		CurrentRoute: req.CurrentRoute,
+		Previous:     previous,
+	}
+	if previous != nil {
+		r.CorrectionRecovery.Context = Clone(previous.Context)
 	}
 	var artifacts []Artifact
 	if req.CurrentRoute {
@@ -205,7 +212,7 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		if req.WithinBudget || req.PreserveSource || req.Revision < 1 || req.Revision != c.outputRun(r).Revision || !validCorrectionSHA(req.PatchSHA256) || !validCorrectionSHA(req.CheckSHA256) {
 			return reject("current_route requires exact observed family revision, patch/check SHA256 and settled source, without other recovery modes")
 		}
-	} else if req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil {
+	} else if req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil || req.PreviousRequestID != "" {
 		return reject("exact correction bindings and supplemental context require current_route")
 	} else if req.WithinBudget {
 		if req.MaxUses != 0 || req.PreserveSource || r.Task != nil {
@@ -217,8 +224,8 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	} else if req.MaxUses != 3 {
 		return reject("max_uses must be three total uses per source-correction route")
 	}
-	if r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || r.CorrectionRecovery != nil || c.inFlight[r.ID] {
-		return reject("correction recovery needs an ungranted settled failed run without cancellation or approval")
+	if r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] {
+		return reject("correction recovery needs a settled failed run without cancellation or approval")
 	}
 	if r.Step < 0 || r.Step >= len(r.Process.Steps) {
 		return reject("saved correction step is unavailable")
@@ -234,6 +241,13 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	}
 	if req.CurrentRoute && req.MaxUses != r.RouteUses[key]+1 {
 		return reject("current_route permits exactly one additional use of only the exhausted route")
+	}
+	if previous := r.CorrectionRecovery; previous != nil {
+		if !req.CurrentRoute || req.PreviousRequestID == "" || req.PreviousRequestID != previous.RequestID || !previous.CurrentRoute || previous.WithinBudget || previous.Route != key || len(previous.RouteLimits) != 1 || previous.RouteLimits[key] != previous.MaxUses || previous.MaxUses != previous.PreviousUses+1 || r.RouteUses[key] != previous.MaxUses || a.ID == previous.AttemptID {
+			return reject("successive recovery requires the exact exhausted previous current-route grant and a fresh rejection")
+		}
+	} else if req.PreviousRequestID != "" {
+		return reject("previous correction grant is unavailable")
 	}
 	if c.workLimitsEnabled() && len(r.Attempts) >= r.Process.MaxAttempts {
 		return reject("original total attempt allowance is exhausted")
@@ -288,6 +302,9 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	}
 	if err := c.recoveryArtifact(r, source.PatchID); err != nil {
 		return reject(err.Error())
+	}
+	if previous := r.CorrectionRecovery; previous != nil && source.PatchID == previous.PatchID {
+		return reject("successive recovery requires a fresh retained owner candidate")
 	}
 	inputs := r.StepInputs
 	if inputs == nil {

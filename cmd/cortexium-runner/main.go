@@ -86,6 +86,7 @@ func run(ctx context.Context, args []string) error {
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
 	withinBudget := fs.Bool("within-budget", false, "grant retry or source-correction allowance from the existing total attempt budget")
 	currentRoute := fs.Bool("current-route", false, "owner-authorized one additional use of only the exact exhausted source-correction route")
+	previousRequest := fs.String("previous-request-id", "", "exact previous current-route grant for an explicitly authorized successive recovery")
 	contextFile := fs.String("context-file", "", "bounded owner-supplied supplemental correction JSON")
 	contextSHA := fs.String("context-sha256", "", "exact SHA256 of supplemental correction JSON")
 	contextRoles := fs.String("context-roles", "", "JSON array of existing future source/review role recipients")
@@ -233,7 +234,7 @@ func run(ctx context.Context, args []string) error {
 	if *withinBudget && command != "recover-corrections" && (command != "retry" || *extra <= 0 || *cleanupOnly) {
 		return errors.New("--within-budget requires retry with positive --extra-attempts and without --cleanup-only")
 	}
-	if command != "recover-corrections" && (*currentRoute || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
+	if command != "recover-corrections" && (*currentRoute || *previousRequest != "" || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
 		return errors.New("current-route and correction context flags require recover-corrections")
 	}
 	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || !*withinBudget && !*currentRoute && *maxUses != 3 || *withinBudget && (*maxUses != 0 || *preserveSource || *currentRoute) || *currentRoute && (*revision < 1 || *maxUses < 1 || *patchSHA256 == "" || *checkSHA256 == "" || *preserveSource) || *profile != "" || *extra != 0 || *cleanupOnly) {
@@ -407,7 +408,7 @@ func run(ctx context.Context, args []string) error {
 			Profile:   *profile,
 		}
 	case "recover-corrections":
-		if !*currentRoute && (*revision != 0 || *patchSHA256 != "" || *checkSHA256 != "" || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
+		if !*currentRoute && (*previousRequest != "" || *revision != 0 || *patchSHA256 != "" || *checkSHA256 != "" || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
 			return errors.New("exact correction bindings and context require --current-route")
 		}
 		var supplement *runner.CorrectionContextInput
@@ -436,17 +437,18 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_corrections"
 		a = runner.RecoverCorrectionsRequest{
-			RequestID:      *requestID,
-			RunID:          *runID,
-			AttemptID:      *attemptID,
-			MaxUses:        *maxUses,
-			WithinBudget:   *withinBudget,
-			PreserveSource: *preserveSource,
-			CurrentRoute:   *currentRoute,
-			Revision:       *revision,
-			PatchSHA256:    *patchSHA256,
-			CheckSHA256:    *checkSHA256,
-			Context:        supplement,
+			RequestID:         *requestID,
+			RunID:             *runID,
+			AttemptID:         *attemptID,
+			MaxUses:           *maxUses,
+			WithinBudget:      *withinBudget,
+			PreserveSource:    *preserveSource,
+			CurrentRoute:      *currentRoute,
+			Revision:          *revision,
+			PatchSHA256:       *patchSHA256,
+			CheckSHA256:       *checkSHA256,
+			Context:           supplement,
+			PreviousRequestID: *previousRequest,
 		}
 	case "recover-collection":
 		if *requestID == "" {

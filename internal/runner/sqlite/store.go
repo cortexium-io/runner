@@ -484,8 +484,10 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	}
 	add(r.Inputs)
 	add(r.Outputs)
-	if r.CorrectionRecovery != nil && r.CorrectionRecovery.Context != nil {
-		refs[r.CorrectionRecovery.Context.ID] = true
+	for grant := r.CorrectionRecovery; grant != nil; grant = grant.Previous {
+		if grant.Context != nil {
+			refs[grant.Context.ID] = true
+		}
 	}
 	if r.TaskGraph != nil {
 		for _, grant := range r.TaskGraph.AllowanceGrants {

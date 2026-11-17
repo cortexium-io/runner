@@ -78,7 +78,7 @@ func (c *Core) correctionArtifactDigest(r Run, id, expected string) error {
 // A lost commit acknowledgement must not leave the in-memory failed snapshot
 // authorising another operation over a durably committed recovery.
 func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (Run, error) {
-	if grant := r.CorrectionRecovery; grant != nil && grant.RequestID == req.RequestID {
+	if grant := correctionGrant(r.CorrectionRecovery, req.RequestID); grant != nil {
 		if req.CurrentRoute {
 			return c.outputRun(r), nil
 		}
@@ -92,8 +92,8 @@ func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (
 		if saved.ID != req.RunID {
 			continue
 		}
-		grant := saved.CorrectionRecovery
-		if grant == nil || grant.RequestID != req.RequestID || grant.AttemptID != req.AttemptID || grant.MaxUses != req.MaxUses || grant.CurrentRoute != req.CurrentRoute || saved.Revision < r.Revision {
+		grant := correctionGrant(saved.CorrectionRecovery, req.RequestID)
+		if grant == nil || grant.AttemptID != req.AttemptID || grant.MaxUses != req.MaxUses || grant.CurrentRoute != req.CurrentRoute || saved.Revision < r.Revision {
 			return Run{}, errors.New("committed correction recovery does not match its receipt")
 		}
 		c.runs[saved.ID] = saved
@@ -107,6 +107,15 @@ func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (
 		return Clone(saved), nil
 	}
 	return Run{}, errors.New("committed correction recovery is unavailable; reopen the same state")
+}
+
+func correctionGrant(grant *CorrectionRecovery, requestID string) *CorrectionRecovery {
+	for ; grant != nil; grant = grant.Previous {
+		if grant.RequestID == requestID {
+			return grant
+		}
+	}
+	return nil
 }
 
 func (c *Core) correctionAssignmentContext(r Run, a Attempt) (*CorrectionContext, error) {
