@@ -350,6 +350,26 @@ A second audited one-use recovery retaining the first grant is a new owner
 decision, not authority inferred from the first grant. Candidate, reports and the
 compact `retained-ad-blocker.json` remain in the canonical qualification directory.
 
+Dan then approved a second audited one-use recovery, ceiling 5, preserving the
+first grant and all four spent corrections. Qualified source `47b4686d8d5c`
+requires the exact previous current-route request ID and fresh rejection/candidate
+bindings. It retains the complete previous grant and context, and reconciles
+durable state when either receipt is replayed, including a lost second commit
+acknowledgement/read. SQLite pins both context artifacts. A baseline retry test
+now waits for run cleanup before comparing a rejected action's unchanged state;
+the cleanup race was independently reproduced on the unchanged baseline.
+Focused and ordinary Core/SQLite/control/CLI race/vet checks passed, with independent
+review and exact Code Atlas context. No process limit, schema or policy changed.
+
+The quiet installation again preserved all 187 runs, table fingerprints, schema 20,
+configuration and the accepted Sudoku preview. The second stable-ID grant applied
+once at public revision 476, spending 4 to 5 under ceiling 5. The first grant and
+all prior attempt facts/frozen bindings remain intact. Native CSS-package verifier
+correction resumed in the same ad root; no product acceptance/release is implied.
+Canonical qualification, installation and grant receipts are in the existing
+`pocket-hideout-recovery/second-recovery/` evidence directory. The bounded Core
+extension is tracked in [Runner issue 132](https://github.com/cortexium-io/runner/issues/132).
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed
