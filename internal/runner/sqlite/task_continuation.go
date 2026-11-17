@@ -72,15 +72,8 @@ func (s *Store) SaveTaskContinuation(ctx context.Context, origin, target runner.
 		if err = tx.QueryRowContext(ctx, "SELECT data,definition FROM runs WHERE id=? AND project=?", want.ID, want.ProjectID).Scan(&data, &definition); err != nil {
 			return err
 		}
-		got, err := runner.UnmarshalRunRecord(data, definition)
+		got, err := s.loadRunRecord(ctx, tx, data, definition)
 		if err != nil {
-			return err
-		}
-		count, err := storedAttemptCount(data)
-		if err != nil {
-			return err
-		}
-		if err = s.loadAttempts(ctx, tx, &got, count); err != nil {
 			return err
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -160,20 +153,20 @@ func (s *Store) SaveTaskContinuation(ctx context.Context, origin, target runner.
 // Retention may remove a continuation only with both linked families. Artifact
 // uses protect source bytes; these identity links also protect failed history
 // and prevent a completed new root leaving an unreadable dangling audit.
-func guardTaskContinuationDelete(ctx context.Context, tx *sql.Tx, ids []string) error {
+func (s *Store) guardTaskContinuationDelete(ctx context.Context, tx *sql.Tx, ids []string) error {
 	selected := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		selected[id] = true
 	}
 	load := func(id string) (runner.Run, error) {
-		var data []byte
-		err := tx.QueryRowContext(ctx, "SELECT data FROM runs WHERE id=?", id).Scan(&data)
+		var data, definition []byte
+		err := tx.QueryRowContext(ctx, "SELECT data,definition FROM runs WHERE id=?", id).Scan(&data, &definition)
 		if errors.Is(err, sql.ErrNoRows) {
 			return runner.Run{}, nil
 		}
 		var r runner.Run
 		if err == nil {
-			err = json.Unmarshal(data, &r)
+			r, err = s.loadRunRecord(ctx, tx, data, definition)
 		}
 		return r, err
 	}

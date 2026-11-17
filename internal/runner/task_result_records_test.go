@@ -3,9 +3,7 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -36,8 +34,8 @@ func TestTaskResultRecordsPreservePublicIdentityAndLegacyReferences(t *testing.T
 	if err := json.Unmarshal(state, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := wire.Graph.Results[0]["id"]; exists {
-		t.Fatal("retired child identity was duplicated")
+	if wire.Graph.Results[0]["id"] != link.Spec.ID {
+		t.Fatal("portable result lost its explicit public identity")
 	}
 	if wire.Graph.Results[2]["id"] != "complete-legacy-reference" || !reflect.DeepEqual(wire.Graph.Inputs, r.TaskGraph.ResultInputs) {
 		t.Fatal("legacy or sibling authority was altered")
@@ -75,54 +73,11 @@ func TestTaskResultRecordsRejectMissingOrAmbiguousNormalizedIdentity(t *testing.
 			children = []RoleTaskLink{r.TaskGraph.Children[0], r.TaskGraph.Children[0]}
 		}
 		graph["children"], _ = json.Marshal(children)
+		graph["results"] = json.RawMessage(`[{"run_id":"unmaterialized-child"}]`)
 		document["task_graph"], _ = json.Marshal(graph)
 		bad, _ := json.Marshal(document)
 		if _, err := UnmarshalRunRecord(bad, definition); err == nil {
 			t.Fatal("normalized identity guessed absent/ambiguous ownership")
 		}
-	}
-}
-
-func TestTaskResultRecordsRetainedFrontierFitsUnchangedReserve(t *testing.T) {
-	r := retainedTaskSpecification()
-	r.TaskGraph.Children, r.TaskGraph.Results, r.Attempts = nil, nil, nil
-	r.TaskGraph.Directive = strings.Repeat("Preserve canonical work and independently verify the goal. ", 30)
-	for i := range 56 {
-		id := fmt.Sprintf("correction-test-author-current-evidence-contract-reassessment-%02d", i)
-		spec := RoleTask{ID: id, Role: "developer", Brief: "Preserve work; qualify only the changed contract."}
-		r.TaskGraph.Children = append(r.TaskGraph.Children, RoleTaskLink{Spec: spec, RunID: fmt.Sprintf("run_%032d", i)})
-		r.TaskGraph.Results = append(r.TaskGraph.Results, TaskResultRef{ID: id, RunID: fmt.Sprintf("run_%032d", i)})
-		r.Attempts = append(r.Attempts, Attempt{
-			ID: fmt.Sprintf("attempt_%032d", i),
-			End: &ExecutionEnd{
-				Kind: "returned",
-				Result: &StepResult{
-					Outcome: "ready",
-					TaskAction: &TaskAction{
-						Kind:  "delegate",
-						Tasks: []RoleTask{spec},
-					},
-				},
-			},
-		})
-	}
-	state, definition, err := MarshalRunRecord(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]json.RawMessage
-	var graph map[string]json.RawMessage
-	_ = json.Unmarshal(state, &document)
-	_ = json.Unmarshal(document["task_graph"], &graph)
-	graph["results"], _ = json.Marshal(r.TaskGraph.Results)
-	document["task_graph"], _ = json.Marshal(graph)
-	duplicated, _ := json.Marshal(document)
-	const reserve = 20 << 10
-	if len(state) >= reserve || len(duplicated) <= reserve || len(duplicated)-len(state) < 2500 {
-		t.Fatalf("frontier did not fit unchanged reserve: normalized=%d duplicated=%d", len(state), len(duplicated))
-	}
-	loaded, err := UnmarshalRunRecord(state, definition)
-	if err != nil || !reflect.DeepEqual(loaded.TaskGraph.Results, r.TaskGraph.Results) {
-		t.Fatal("frontier lost public results", err)
 	}
 }

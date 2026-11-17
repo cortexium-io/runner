@@ -67,11 +67,12 @@ func TestTaskSpecificationsRestoreFromRetainedAttemptsBeforeChildrenExist(t *tes
 			Results []map[string]any `json:"results"`
 		} `json:"task_graph"`
 	}
-	if json.Unmarshal(data, &encoded) != nil || len(encoded.Graph.Results) != len(r.TaskGraph.Results) {
-		t.Fatal("stored result references lost")
+	if json.Unmarshal(data, &encoded) != nil || len(encoded.Graph.Results) != 0 {
+		t.Fatal("stored header still embeds result history")
 	}
-	if _, exists := encoded.Graph.Results[0]["id"]; exists {
-		t.Fatal("disk still duplicates the canonical child task ID")
+	var memberships int
+	if err := s.db.QueryRow("SELECT count(*) FROM role_task_links WHERE result_position IS NOT NULL").Scan(&memberships); err != nil || memberships != len(r.TaskGraph.Results) {
+		t.Fatal("explicit result membership lost", err)
 	}
 	history := allowanceAttemptBytes(t, s)
 	if err = s.Close(); err != nil {

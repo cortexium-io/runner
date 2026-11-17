@@ -32,6 +32,10 @@ func TestRunAdmissionKeepsBothTaskFormsReservedUntilMaterialized(t *testing.T) {
 	if got, err := c.availableRunSlots(); err != nil || got != 0 {
 		t.Fatal("pending children lost their byte reservations", got, err)
 	}
+	c.runs["root"].TaskGraph.Children[0].Retired = true
+	if got, err := c.availableRunSlots(); err != nil || got != 0 {
+		t.Fatal("retirement released an unmaterialized retained allocation", got, err)
+	}
 	c.runs["general-child"] = Run{}
 	c.store = capacityStore{slots: 1} // The store now owns the materialized reservation.
 	if got, err := c.availableRunSlots(); err != nil || got != 0 {

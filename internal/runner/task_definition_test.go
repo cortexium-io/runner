@@ -76,7 +76,7 @@ func taskDefinitionFixture(t *testing.T) (*Core, *taskDefinitionStore, Run, Retr
 	}
 	root.Visit = 33
 	link := RoleTaskLink{Spec: RoleTask{ID: "accepted", Role: "reader", Brief: "Accepted independent report"}, RunID: "accepted-reader"}
-	child := c.graphChild(root, root, link)
+	child := graphChild(root, root, link)
 	child.Status, child.ResourcesReleased, child.Revision = "Completed", true, 3
 	child = Clone(child)
 	root.TaskGraph.Children = []RoleTaskLink{link}
@@ -122,7 +122,7 @@ func TestTaskDefinitionAmendmentPreservesHistoryAndFutureRoles(t *testing.T) {
 			t.Fatal("future root role did not receive owner guidance", id)
 		}
 	}
-	future := c.graphChild(c.runs[after.ID], c.runs[after.ID], RoleTaskLink{Spec: RoleTask{ID: "future-review", Role: "reader"}, RunID: "future-reader"})
+	future := graphChild(c.runs[after.ID], c.runs[after.ID], RoleTaskLink{Spec: RoleTask{ID: "future-review", Role: "reader"}, RunID: "future-reader"})
 	if future.Roles["reader"].Execution.Instructions != req.RoleInstructions["reader"] || oldChild.Roles["reader"].Execution.Instructions == req.RoleInstructions["reader"] {
 		t.Fatal("future and historical child guidance did not retain separate ownership")
 	}

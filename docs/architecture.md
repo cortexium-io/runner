@@ -185,13 +185,26 @@ Native model streams are excluded. Diagnostic artifacts use normal scoped result
 access and never grant product acceptance. Schema 17 protects both this fact and
 explicit result inputs without rewriting old table rows.
 
-Schema 19 additionally normalizes repeated result task IDs only in the private
-run-record representation. A unique retained child RunID already owns that ID;
-decode restores it before any public context or store guard uses the record.
-Retired child links keep their original identity, full legacy references remain
-readable, and explicit sibling result inputs are unchanged. Canonical attempts,
-specifications and definitions remain the owning proof. This removes duplicated
-operational text without raising the state-byte reserve or adding another table.
+Schema 19's omitted result IDs remain readable by resolving the unique retained
+child RunID. Schema 20 replaces that partial writer optimization with normalized
+parent-owned relationships in `role_task_links`, alongside existing attempt rows.
+The operational document retains counts rather than growing arrays of historical
+children and results. Ordered rows preserve reserved child RunIDs before child
+creation, canonical specification sources, retirement and explicit result
+membership. Complete unmatched legacy results remain references, not allocations.
+
+The storage decoder hydrates relationships and canonical attempts before returning
+a complete public Run to Core, inspection or transaction guards. Root state,
+relationships, attempts and receipts commit atomically; unchanged historical rows
+stay unchanged. Existing per-row/database byte safeguards and physical reservation
+accounting remain. Opening schema 19 adds the relation without rewriting existing
+payloads; ordinary saves normalize them. Portable proof records retain full public
+references. No returned-but-unapplied proposal can create relationship authority.
+Creating an initial child consumes its parent-owned allocation. The store
+authenticates it against the same Core builders, including cancellation before
+dispatch; unrelated runs and reactivation retain ordinary admission. Actual
+relationship, artifact-use and receipt pages are checked before commit against
+the completion reserve for pending allocations.
 
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting

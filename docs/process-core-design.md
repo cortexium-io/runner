@@ -9,6 +9,54 @@ Merge, publication and production remain separately authorized actions.**
 
 ### Verification lifecycle correction, authorised 17 November 2026
 
+The real reuse qualification now passes: one fixed check executed the remaining
+25 of 59 browser cases in 555.557 seconds; the subsequent report-only check
+authenticated all 59 and executed zero journeys in 21.788 seconds. Synthetic
+qualification rejects 25 meaningful mutants and resumes exactly two missing
+cases. Canonical receipts are `maintenance/proof-reuse-real-qualification.json`
+in the original intake. Independent UX review approves all fourteen corrections.
+Source review correctly requires hashing the configured engine payloads and
+launcher-selection inputs, rather than launcher scripts alone. Runner owns that
+verifier correction and its current evidence; the prior hashes cannot be
+retroactively asserted as historical engine identities.
+
+The partial identity normalization below did not remove the underlying storage
+problem: the bounded operational document still contains every historical child
+link and result membership. At 20,261/20,480 bytes it cannot reliably admit the
+remaining checks and reviews. Complete this correction by normalizing those
+parent-owned relationships into the same transactional SQLite store, analogous
+to existing attempt rows. Preserve allocations before child materialization,
+canonical specification references, exact result order and all retired/history
+authority. Hydrate the complete public Run before Core or authorization guards
+use it; never reconstruct admission by replaying returned model proposals.
+Persist relationships, operational header, attempts and receipts atomically,
+validate each row against existing byte limits, and retain physical reservation
+accounting. Schema 20 adds this specific storage relation without rewriting old
+payloads on open; existing roots normalize on ordinary save. Qualify corruption,
+rollback/restart, pending allocation, historical authority and long-history
+admission before a quiescent installation. The normal owner pause lets the
+current verifier author finish; preserve that execution and then resume the
+same root without changing its directive, allowances or product acceptance.
+
+The boundary qualification also exposes a second admission charge when an
+already-reserved child materializes. Authenticate that initial queued or
+cancelled child against its retained parent and the existing Core builders,
+then consume the allocation without fresh admission. Unrelated work and
+reactivation retain normal admission; hard row/page bounds remain. Measure
+actual relationship and receipt pages in the same transaction, retaining the
+existing completion reserve for every unmaterialized allocation. Prove that
+every admitted child can materialize, including cancellation before dispatch.
+
+Qualification passes the complete Core race/vet suite (73.890 seconds), complete
+SQLite race suite (35.526 seconds) and final affected SQLite vet/constructor
+proofs. Focused cross-layer stopped-card and governed-source recovery journeys
+pass in 87.862 seconds. The final review has no remaining P1/P2. Tests distinguish
+500-entry codec stress from 96 genuinely materialized historical producers across
+restart, and prove normal/cancelled child creation at zero fresh-admission slots.
+Earlier failed qualification logs remain retained; no recovery assertion, timeout,
+permission or policy ceiling was relaxed. Installation and product closure still
+require their actual receipts below the existing intake's maintenance directory.
+
 The first corrected execution finished in 986.462 seconds with frontend/build/
 browser stages and C01–C14 reported passed, but its final admission probe rejected
 the producer's structured checker/runtime values against the existing string-map

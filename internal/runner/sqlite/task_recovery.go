@@ -44,15 +44,8 @@ func (s *Store) SaveTaskRecovery(ctx context.Context, expected, after []runner.R
 		if err = tx.QueryRowContext(ctx, "SELECT data,definition FROM runs WHERE id=? AND project=?", want.ID, want.ProjectID).Scan(&data, &definition); err != nil {
 			return err
 		}
-		got, err := runner.UnmarshalRunRecord(data, definition)
+		got, err := s.loadRunRecord(ctx, tx, data, definition)
 		if err != nil {
-			return err
-		}
-		count, err := storedAttemptCount(data)
-		if err != nil {
-			return err
-		}
-		if err = s.loadAttempts(ctx, tx, &got, count); err != nil {
 			return err
 		}
 		if !reflect.DeepEqual(got, want) || known[got.ID] {

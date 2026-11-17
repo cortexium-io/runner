@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 19 {
+	if version < 0 || version > 20 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -282,6 +282,17 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		if _, e = db.Exec("PRAGMA user_version=19"); e != nil {
 			return nil, e
 		}
+		version = 19
+	}
+	if version == 19 {
+		if _, e = db.Exec(`BEGIN;
+CREATE TABLE role_task_links(parent_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+position INTEGER NOT NULL CHECK(position>=0),child_run_id TEXT NOT NULL,data BLOB NOT NULL,
+result_position INTEGER CHECK(result_position IS NULL OR result_position>=0),
+PRIMARY KEY(parent_run_id,position),UNIQUE(parent_run_id,child_run_id),UNIQUE(parent_run_id,result_position));
+PRAGMA user_version=20; COMMIT;`); e != nil {
+			return nil, e
+		}
 	}
 	if e = os.Chmod(path, 0600); e != nil {
 		return nil, e
@@ -305,30 +316,17 @@ func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
 		return nil, e
 	}
 	defer rows.Close()
-	var out []runner.Run
-	var counts []int
+	type storedRun struct {
+		id, project       string
+		state, definition []byte
+	}
+	var stored []storedRun
 	for rows.Next() {
-		var id, project string
-		var b, definition []byte
-		if e = rows.Scan(&id, &project, &b, &definition); e != nil {
+		var item storedRun
+		if e = rows.Scan(&item.id, &item.project, &item.state, &item.definition); e != nil {
 			return nil, e
 		}
-		if len(b) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
-			return nil, errors.New("oversized stored run")
-		}
-		r, e := runner.UnmarshalRunRecord(b, definition)
-		if e != nil {
-			return nil, e
-		}
-		if r.ID != id || r.ProjectID != project {
-			return nil, errors.New("stored run identity differs")
-		}
-		count, e := storedAttemptCount(b)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, r)
-		counts = append(counts, count)
+		stored = append(stored, item)
 	}
 	if e = rows.Err(); e != nil {
 		return nil, e
@@ -336,11 +334,25 @@ func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
 	if e = rows.Close(); e != nil {
 		return nil, e
 	}
-	for i := range out {
-		if e = s.loadAttempts(ctx, tx, &out[i], counts[i]); e != nil {
-			return nil, e
-		}
+	var orphan int
+	if e = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM role_task_links l LEFT JOIN runs r ON r.id=l.parent_run_id WHERE r.id IS NULL)").Scan(&orphan); e != nil {
+		return nil, e
 	}
+	if orphan != 0 {
+		return nil, errors.New("orphan normalized task relationships")
+	}
+	var out []runner.Run
+	for _, item := range stored {
+		r, err := s.loadRunRecord(ctx, tx, item.state, item.definition)
+		if err != nil {
+			return nil, err
+		}
+		if r.ID != item.id || r.ProjectID != item.project {
+			return nil, errors.New("stored run identity differs")
+		}
+		out = append(out, r)
+	}
+
 	if e = tx.Commit(); e != nil {
 		return nil, e
 	}
@@ -374,7 +386,8 @@ type saveAuthorization struct {
 }
 
 func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, authority saveAuthorization) error {
-	b, definition, e := runner.MarshalRunRecord(r)
+	record, e := runner.MarshalRunStorageRecord(r)
+	b, definition := record.State, record.Definition
 	if e != nil {
 		return e
 	}
@@ -390,6 +403,13 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
+	var before runner.Run
+	if len(previous) != 0 {
+		before, e = s.loadRunRecord(ctx, tx, previous, previousDefinition)
+		if e != nil {
+			return e
+		}
+	}
 	if err := s.guardTaskContinuationSave(ctx, tx, r, previous, authority.continuation); err != nil {
 		return err
 	}
@@ -399,11 +419,18 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if err := guardTaskFollowupSave(r, previous, authority.followup); err != nil {
 		return err
 	}
-	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, artifacts, receipt); err != nil {
+	if err := s.guardTaskAllowanceSave(ctx, tx, r, before, previousDefinition, artifacts, receipt); err != nil {
 		return err
 	}
 	newRun := errors.Is(e, sql.ErrNoRows)
 	needsReservation := newRun
+	if newRun && receipt == nil && len(artifacts) == 0 {
+		consumes, err := s.consumesTaskReservation(ctx, tx, r)
+		if err != nil {
+			return err
+		}
+		needsReservation = !consumes
+	}
 	if !newRun && (!r.Terminal() || !r.ResourcesReleased) {
 		var before runner.Run
 		if err := json.Unmarshal(previous, &before); err != nil {
@@ -421,6 +448,7 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 		}
 	}
 	if needsReservation {
+		// A materializing child already has its parent reservation row on disk.
 		remaining, err := s.availableRunSlots(ctx, tx)
 		if err != nil {
 			return err
@@ -433,6 +461,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 		return e
 	}
 	if e = s.saveAttempts(ctx, tx, r, attempts, previous, authority.handoffUpgrade); e != nil {
+		return e
+	}
+	if e = s.saveTaskLinks(ctx, tx, r, before, previous, record); e != nil {
 		return e
 	}
 	for _, a := range artifacts {
@@ -523,6 +554,15 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 			return e
 		}
 	}
+	oldChildren := 0
+	if before.TaskGraph != nil {
+		oldChildren = len(before.TaskGraph.Children)
+	}
+	if r.TaskGraph != nil && len(r.TaskGraph.Children) > oldChildren {
+		if err := s.checkTaskLinkAdmission(ctx, tx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (s *Store) FindReceipt(ctx context.Context, key string) (runner.Receipt, error) {
@@ -556,7 +596,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return e
 	}
 	defer tx.Rollback()
-	if e = guardTaskContinuationDelete(ctx, tx, []string{id}); e != nil {
+	if e = s.guardTaskContinuationDelete(ctx, tx, []string{id}); e != nil {
 		return e
 	}
 	if e = s.guardTaskFollowupDelete(ctx, tx, []string{id}); e != nil {

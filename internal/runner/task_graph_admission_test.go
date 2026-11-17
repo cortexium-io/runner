@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestGeneralTaskAdmissionReservesFutureResultReferenceState(t *testing.T) {
+func TestGeneralTaskAdmissionSeparatesRelationshipsFromResumptionReserve(t *testing.T) {
 	p := DefaultStorage()
 	p.Database.MaxRuns = 1000
 	p.MinFree, p.Database.MaxRecord = 0, 4096
@@ -24,36 +24,31 @@ func TestGeneralTaskAdmissionReservesFutureResultReferenceState(t *testing.T) {
 	}
 	c := &Core{snapshot: Snapshot{Instance: Instance{EnforceWorkLimits: true}}, disk: disk, runs: map[string]Run{root.ID: root}}
 	var tasks []RoleTask
-	found := false
-	for padding := 1; padding < 512; padding++ {
-		candidate := Clone(root)
-		tasks = nil
-		for i := range 4 {
-			spec := RoleTask{ID: fmt.Sprint(i), Role: "worker", Brief: strings.Repeat("b", padding), Inputs: map[string]Value{}}
-			tasks = append(tasks, spec)
-			candidate.TaskGraph.Children = append(candidate.TaskGraph.Children, RoleTaskLink{Spec: spec, RunID: fmt.Sprintf("run_%026d", i)})
-		}
-		candidate.TaskGraph.Phase = TaskWaitingChildren
-		candidate.Status, candidate.Reason = "Waiting", "waiting for role tasks"
-		if admitRunRecord(candidate, p.Database.MaxRecord) != nil {
-			continue
-		}
-		resuming := Clone(candidate)
-		resuming.TaskGraph.Results, resuming.TaskGraph.Phase = graphResultRefs(candidate), ""
-		resuming.Visit++
-		resuming.Status, resuming.Reason = "Queued", "evaluating retained child results"
-		if admitRunRecord(resuming, p.Database.MaxRecord) != nil {
-			found = true
-			break
-		}
-		tasks = nil
+	for i := range 4 {
+		tasks = append(tasks, RoleTask{ID: fmt.Sprint(i), Role: "worker", Brief: strings.Repeat("b", 700), Inputs: map[string]Value{}})
 	}
-	if !found {
-		t.Fatal("fixture did not reach the result-reference recovery boundary")
+	if err := c.graphAction(&root, &StepResult{Outcome: "ready", TaskAction: &TaskAction{Kind: "delegate", Tasks: tasks}}); err != nil {
+		t.Fatal("separately bounded task rows consumed parent reserve", err)
 	}
-	err = c.graphAction(&root, &StepResult{Outcome: "ready", TaskAction: &TaskAction{Kind: "delegate", Tasks: tasks}})
-	if err == nil || !strings.Contains(err.Error(), "parent resumption") || len(root.TaskGraph.Children) != 0 || len(c.runs) != 1 {
-		t.Fatalf("unresumable metadata fan-out was admitted: %v", err)
+	portable, _, err := MarshalRunRecord(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := MarshalRunStorageRecord(root)
+	if err != nil || len(portable) <= int(p.Database.MaxRecord)/2 || len(record.State) > int(p.Database.MaxRecord)/2 || len(record.TaskLinks) != 4 {
+		t.Fatal("wide task records did not separate from operational reserve", err)
+	}
+	resuming := Clone(root)
+	resuming.TaskGraph.Results, resuming.TaskGraph.Phase = graphResultRefs(root), ""
+	resuming.Visit++
+	resuming.Status, resuming.Reason = "Queued", "evaluating retained child results"
+	if err := admitRunRecord(resuming, p.Database.MaxRecord); err != nil {
+		t.Fatal("normalized parent cannot resume after current results", err)
+	}
+	tooLarge := Clone(root)
+	tooLarge.TaskGraph.Children[0].Spec.Brief = strings.Repeat("x", int(p.Database.MaxRecord))
+	if err := admitRunRecord(tooLarge, p.Database.MaxRecord); err == nil {
+		t.Fatal("normalization bypassed the individual relationship row bound")
 	}
 }
 

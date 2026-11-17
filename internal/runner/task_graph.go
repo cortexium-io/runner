@@ -151,7 +151,7 @@ func (c *Core) graphSubtreeCleanupClear(r Run) bool {
 	return true
 }
 
-func (c *Core) graphChild(parent, root Run, link RoleTaskLink) Run {
+func graphChild(parent, root Run, link RoleTaskLink) Run {
 	role := root.Roles[link.Spec.Role]
 	inputs := map[string]Binding{}
 	outputs := map[string]Binding{}
@@ -202,6 +202,12 @@ func (c *Core) graphChild(parent, root Run, link RoleTaskLink) Run {
 			WritePaths:   Clone(link.Spec.WritePaths),
 		},
 	}
+	return child
+}
+
+func cancelledGraphChild(parent, root Run, link RoleTaskLink) Run {
+	child := graphChild(parent, root, link)
+	child.Status, child.Reason, child.CancelRequested = "Cancelled", "parent cancelled before dispatch", true
 	return child
 }
 
@@ -660,7 +666,7 @@ func (c *Core) driveGraph(r Run) bool {
 		}
 		child, exists := c.runs[link.RunID]
 		if !exists {
-			child = c.graphChild(r, root, link)
+			child = graphChild(r, root, link)
 			if err := c.persist(child, nil, nil); err != nil {
 				return true
 			}
@@ -710,8 +716,7 @@ func (c *Core) cancelGraphChildren(r Run, renew bool) error {
 			if err != nil {
 				return err
 			}
-			child = c.graphChild(r, root, link)
-			child.Status, child.Reason, child.CancelRequested = "Cancelled", "parent cancelled before dispatch", true
+			child = cancelledGraphChild(r, root, link)
 			if err := c.persist(child, nil, nil); err != nil {
 				return err
 			}

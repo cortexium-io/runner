@@ -61,7 +61,7 @@ func (s *Store) DeleteFamily(ctx context.Context, ids []string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err = guardTaskContinuationDelete(ctx, tx, ids); err != nil {
+	if err = s.guardTaskContinuationDelete(ctx, tx, ids); err != nil {
 		return err
 	}
 	if err = s.guardTaskFollowupDelete(ctx, tx, ids); err != nil {

@@ -245,6 +245,17 @@ func childForItem(root Run, state *TaskGroupState, item TaskItem, id string) Run
 	}
 }
 
+// initialTaskChild adds creation-time cancellation without changing the pure
+// identity builder used to authenticate retained children during recovery.
+func initialTaskChild(root Run, state *TaskGroupState, item TaskItem, id string) Run {
+	child := childForItem(root, state, item, id)
+	if root.CancelRequested || state.Failure != "" {
+		child.CancelRequested = true
+		child.Status, child.Reason = "Cancelled", "parent task group is stopping"
+	}
+	return child
+}
+
 func allAttemptsReleased(r Run) bool {
 	for _, a := range r.Attempts {
 		if a.State != Finished || !a.Released {
@@ -452,11 +463,7 @@ func (c *Core) driveTaskGroup(r Run) bool {
 		item := state.Items[i]
 		child, exists := c.runs[reservation.RunID]
 		if !exists {
-			child = childForItem(r, state, item, reservation.RunID)
-			if r.CancelRequested || state.Failure != "" {
-				child.CancelRequested = true
-				child.Status, child.Reason = "Cancelled", "parent task group is stopping"
-			}
+			child = initialTaskChild(r, state, item, reservation.RunID)
 			if err := admitRunRecord(child, c.disk.Policy.Database.MaxRecord); err != nil {
 				r.Status, r.Reason = "Waiting", Clip(err.Error())
 				_ = c.persist(r, nil, nil)

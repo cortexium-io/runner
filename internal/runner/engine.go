@@ -802,8 +802,8 @@ func (c *Core) tick() time.Duration {
 			}
 			continue
 		}
-		b, _, _ := MarshalRunRecord(r)
-		if len(b)+2048 > int(c.disk.Policy.Database.MaxRecord) {
+		record, recordErr := MarshalRunStorageRecord(r)
+		if recordErr != nil || len(record.State)+2048 > int(c.disk.Policy.Database.MaxRecord) {
 			r.Status = "Waiting"
 			r.Reason = "run history capacity reached; retain results and start a scoped replacement run"
 			_ = c.persist(r, nil, nil)

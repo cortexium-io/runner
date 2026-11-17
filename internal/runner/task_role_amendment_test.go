@@ -76,7 +76,7 @@ func TestTaskRoleAmendmentPreservesPausedWorkAndOnlyFutureInstructions(t *testin
 			if err != nil || !bytes.Equal(proof, definition) || c.readTaskDefinitionProofs(saved) != nil {
 				t.Fatal("amendment did not authenticate its exact previous definition", err)
 			}
-			future := c.graphChild(saved, saved, RoleTaskLink{Spec: RoleTask{ID: "new-scoped-work", Role: "reader", WritePaths: []string{"internal/catalogue.go"}}, RunID: "future-scoped-work"})
+			future := graphChild(saved, saved, RoleTaskLink{Spec: RoleTask{ID: "new-scoped-work", Role: "reader", WritePaths: []string{"internal/catalogue.go"}}, RunID: "future-scoped-work"})
 			if future.Roles["reader"].Execution.Instructions != req.RoleInstructions["reader"] || oldChild.Roles["reader"].Execution.Instructions == req.RoleInstructions["reader"] {
 				t.Fatal("new and historical child snapshots did not retain independent definitions")
 			}

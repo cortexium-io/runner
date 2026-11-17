@@ -68,12 +68,17 @@ func (c *Core) admitTaskItems(root Run, state *TaskGroupState) error {
 }
 
 func admitRunRecord(r Run, limit Bytes) error {
-	state, definition, err := MarshalRunRecord(r)
+	record, err := MarshalRunStorageRecord(r)
 	if err != nil {
 		return err
 	}
-	if len(state) > int(limit)/2 || len(definition) > int(limit) {
-		return fmt.Errorf("run state needs half-record recovery headroom (%d/%d bytes) and its frozen definition must fit one record (%d/%d bytes); use declared artifacts for large inputs", len(state), int(limit)/2, len(definition), limit)
+	if len(record.State) > int(limit)/2 || len(record.Definition) > int(limit) {
+		return fmt.Errorf("run state needs half-record recovery headroom (%d/%d bytes) and its frozen definition must fit one record (%d/%d bytes); use declared artifacts for large inputs", len(record.State), int(limit)/2, len(record.Definition), limit)
+	}
+	for _, row := range record.TaskLinks {
+		if TaskLinkRecordBytes(r.ID, row) > int(limit) {
+			return fmt.Errorf("task-link record exceeds %d bytes", limit)
+		}
 	}
 	return nil
 }

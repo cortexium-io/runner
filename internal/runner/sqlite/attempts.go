@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -58,10 +59,10 @@ func (s *Store) attemptRecords(r runner.Run) ([][]byte, error) {
 	return records, nil
 }
 
-func (s *Store) loadAttempts(ctx context.Context, tx *sql.Tx, r *runner.Run, count int) error {
-	rows, err := tx.QueryContext(ctx, "SELECT position,id,data FROM attempts WHERE run_id=? ORDER BY position", r.ID)
+func (s *Store) loadAttemptRecords(ctx context.Context, tx *sql.Tx, id string, count int) ([]runner.Attempt, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT position,id,data FROM attempts WHERE run_id=? ORDER BY position", id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 	var attempts []runner.Attempt
@@ -70,27 +71,26 @@ func (s *Store) loadAttempts(ctx context.Context, tx *sql.Tx, r *runner.Run, cou
 		var id string
 		var data []byte
 		if err = rows.Scan(&position, &id, &data); err != nil {
-			return err
+			return nil, err
 		}
 		if count < 0 || position != len(attempts) || position >= count || len(data) > int(s.policy.Database.MaxRecord) {
-			return errors.New("stored attempt order, count or size differs")
+			return nil, errors.New("stored attempt order, count or size differs")
 		}
 		var a runner.Attempt
 		if err = json.Unmarshal(data, &a); err != nil || id == "" || a.ID != id {
-			return errors.New("stored attempt identity or format differs")
+			return nil, errors.New("stored attempt identity or format differs")
 		}
 		attempts = append(attempts, a)
 	}
 	if err = rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if count >= 0 {
 		if len(attempts) != count {
-			return errors.New("normalized attempt history is incomplete")
+			return nil, errors.New("normalized attempt history is incomplete")
 		}
-		r.Attempts = attempts
 	}
-	return runner.RestoreTaskSpecifications(r)
+	return attempts, nil
 }
 
 func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, records [][]byte, previous []byte, handoffUpgrade bool) error {
@@ -124,7 +124,7 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 			}
 		}
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT position,id FROM attempts WHERE run_id=? ORDER BY position", r.ID)
+	rows, err := tx.QueryContext(ctx, "SELECT position,id,data FROM attempts WHERE run_id=? ORDER BY position", r.ID)
 	if err != nil {
 		return err
 	}
@@ -132,12 +132,22 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 	for rows.Next() {
 		var position int
 		var id string
-		if err = rows.Scan(&position, &id); err != nil {
+		var data []byte
+		if err = rows.Scan(&position, &id, &data); err != nil {
 			break
 		}
 		if r.RecordFormat < 3 || position != n || position >= len(r.Attempts) || r.Attempts[position].ID != id {
 			err = errors.New("save would discard or replace retained attempt history")
 			break
+		}
+		var old runner.Attempt
+		if err = json.Unmarshal(data, &old); err != nil {
+			break
+		}
+		if reflect.DeepEqual(old, r.Attempts[position]) {
+			// Preserve exact retained bytes, including legacy JSON encoding,
+			// whenever the attempt's public facts are unchanged.
+			records[position] = data
 		}
 		n++
 	}

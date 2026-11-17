@@ -47,7 +47,7 @@ func failedTaskRecoveryFixture(t *testing.T) (*Core, *continuationStore, Recover
 		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "rejected", Outputs: Clone(r.Outputs)}}}}
 	c.runs[r.ID] = r
 	for _, link := range r.TaskGraph.Children {
-		child := c.graphChild(r, r, link)
+		child := graphChild(r, r, link)
 		child.Status, child.ResourcesReleased = "Failed", true
 		switch link.Spec.ID {
 		case "import":

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/runner"
@@ -59,6 +60,7 @@ func familyRows(t *testing.T, s *Store) map[string][][]any {
 		"SELECT id,run_id,project,bytes FROM artifacts ORDER BY id",
 		"SELECT artifact,run_id FROM artifact_uses ORDER BY artifact,run_id",
 		"SELECT run_id,position,id,data FROM attempts ORDER BY run_id,position",
+		"SELECT parent_run_id,position,child_run_id,data,result_position FROM role_task_links ORDER BY parent_run_id,position",
 	} {
 		out[query] = nil
 		rows, err := s.db.QueryContext(t.Context(), query)
@@ -100,6 +102,37 @@ func familyRows(t *testing.T, s *Store) map[string][][]any {
 
 func TestDeleteFamilyAllowsInternalArtifactCyclesAndPreservesOutsideRows(t *testing.T) {
 	s, ids := familyFixture(t)
+	// Exercise real parent-owned relation cascades as well as artifacts and
+	// attempts; the unrelated legacy outside run owns no role-task relation.
+	family, err := s.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range family {
+		if r.ID == "outside" {
+			continue
+		}
+		r.RecordFormat = 9
+		r.TaskGraph = &runner.TaskGraphState{RootRunID: "root", TaskID: r.ID, Brief: "Retain exact family evidence"}
+		switch r.ID {
+		case "root":
+			r.TaskGraph.Children = []runner.RoleTaskLink{{Spec: runner.RoleTask{ID: "child", Role: "owner", Brief: "Retain child evidence"}, RunID: "child"}}
+		case "child":
+			r.TaskGraph.ParentRunID = "root"
+			r.TaskGraph.Role = "owner"
+			r.TaskGraph.Children = []runner.RoleTaskLink{{Spec: runner.RoleTask{ID: "leaf", Role: "owner", Brief: "Retain leaf evidence"}, RunID: "leaf"}}
+		case "leaf":
+			r.TaskGraph.ParentRunID = "child"
+			r.TaskGraph.Role = "owner"
+		}
+		if err := s.Save(t.Context(), r, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var relations int
+	if err := s.db.QueryRow("SELECT count(*) FROM role_task_links").Scan(&relations); err != nil || relations != 2 {
+		t.Fatal("fixture lacks family-owned relationships", relations, err)
+	}
 	if used, err := s.HasConsumers(t.Context(), "root"); err != nil || !used {
 		t.Fatal("fixture lacks an individual-run retention cycle", used, err)
 	}
@@ -134,15 +167,21 @@ func TestDeleteFamilyAllowsInternalArtifactCyclesAndPreservesOutsideRows(t *test
 	}
 	after := familyRows(t, s)
 	for query, rows := range after {
-		if len(rows) != 1 {
-			t.Fatal("family-owned row was not cascaded or outside row disappeared", query, len(rows))
+		ownerColumn := 0
+		switch {
+		case strings.Contains(query, "FROM requests"):
+			ownerColumn = 3
+		case strings.Contains(query, "FROM artifacts"), strings.Contains(query, "FROM artifact_uses"):
+			ownerColumn = 1
 		}
-		found := false
+		var expected [][]any
 		for _, original := range before[query] {
-			found = found || reflect.DeepEqual(rows[0], original)
+			if original[ownerColumn] == "outside" {
+				expected = append(expected, original)
+			}
 		}
-		if !found {
-			t.Fatal("outside row was modified", query)
+		if !reflect.DeepEqual(rows, expected) {
+			t.Fatal("family-owned rows survived or exact outside rows changed", query)
 		}
 	}
 }

@@ -50,8 +50,8 @@ func (s *Store) SaveTaskFollowup(ctx context.Context, target runner.Run, expecte
 		return err
 	}
 	type storedMember struct {
-		run   runner.Run
-		count int
+		id, project      string
+		data, definition []byte
 	}
 	var selected []storedMember
 	for rows.Next() {
@@ -67,20 +67,7 @@ func (s *Store) SaveTaskFollowup(ctx context.Context, target runner.Run, expecte
 		if id != target.Followup.RunID && (header.TaskGraph == nil || header.TaskGraph.RootRunID != target.Followup.RunID) {
 			continue
 		}
-		var run runner.Run
-		run, err = runner.UnmarshalRunRecord(data, definition)
-		if err != nil || run.ID != id || run.ProjectID != project || len(data) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
-			if err == nil {
-				err = errors.New("follow-up parent row identity differs")
-			}
-			break
-		}
-		var count int
-		count, err = storedAttemptCount(data)
-		if err != nil {
-			break
-		}
-		selected = append(selected, storedMember{run: run, count: count})
+		selected = append(selected, storedMember{id: id, project: project, data: data, definition: definition})
 	}
 	if err == nil {
 		err = rows.Err()
@@ -105,15 +92,19 @@ func (s *Store) SaveTaskFollowup(ctx context.Context, target runner.Run, expecte
 	family := make([]runner.Run, 0, len(selected))
 	var parent runner.Run
 	for _, member := range selected {
-		if err = s.loadAttempts(ctx, tx, &member.run, member.count); err != nil {
+		run, err := s.loadRunRecord(ctx, tx, member.data, member.definition)
+		if err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(member.run, wanted[member.run.ID]) {
+		if run.ID != member.id || run.ProjectID != member.project {
+			return errors.New("follow-up parent row identity differs")
+		}
+		if !reflect.DeepEqual(run, wanted[run.ID]) {
 			return errors.New("follow-up parent history changed before transaction")
 		}
-		family = append(family, member.run)
-		if member.run.ID == target.Followup.RunID {
-			parent = member.run
+		family = append(family, run)
+		if run.ID == target.Followup.RunID {
+			parent = run
 		}
 	}
 	if err = runner.ValidateTaskFollowup(target, family, receipt); err != nil {

@@ -17,7 +17,6 @@ type runRecord struct {
 	Roles        map[string]Role   `json:"roles,omitempty"`
 	Profiles     map[string]string `json:"profiles,omitempty"`
 	AttemptCount *int              `json:"attempt_count,omitempty"`
-	TaskGraph    *taskGraphRecord  `json:"task_graph,omitempty"`
 }
 
 // Settings and current operational state are separately bounded documents.
@@ -77,7 +76,6 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	state, err = json.Marshal(runRecord{
 		runAlias:     runAlias(r),
 		AttemptCount: count,
-		TaskGraph:    compactTaskResultIDs(r.TaskGraph),
 	})
 	if err == nil {
 		definition, err = json.Marshal(runDefinition{r.Process, r.Roles, r.Profiles})
@@ -87,6 +85,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 
 func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	var r Run
+	if count, _, _, err := RunStorageLinkCounts(state); err != nil || count >= 0 {
+		return r, errors.New("normalized graph relationships require complete storage hydration")
+	}
 	if err := json.Unmarshal(state, &r); err != nil {
 		return r, err
 	}

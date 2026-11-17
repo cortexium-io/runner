@@ -301,7 +301,7 @@ func TestTaskContinuationImportsOnlySelectedDeclaredEvidenceThroughChildren(t *t
 		t.Fatal(err)
 	}
 	c.runs[r.ID] = r
-	child := c.graphChild(r, r, r.TaskGraph.Children[0])
+	child := graphChild(r, r, r.TaskGraph.Children[0])
 	c.runs[child.ID] = child
 	if child.TaskGraph.Lineage != nil || c.familyRemaining(child) != 28 || !c.graphArtifactAllowed(child, patch.ArtifactID) || c.graphArtifactAllowed(child, unselected.ID) {
 		t.Fatal("child duplicated allowance or broadened imported evidence")

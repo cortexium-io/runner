@@ -12,15 +12,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func (s *Store) guardTaskAllowanceSave(ctx context.Context, tx *sql.Tx, after runner.Run, previous, definition []byte, artifacts []runner.Artifact, receipt *runner.Receipt) error {
-	var before runner.Run
-	if len(previous) != 0 {
-		var err error
-		before, err = runner.UnmarshalRunRecord(previous, definition)
-		if err != nil {
-			return err
-		}
-	}
+func (s *Store) guardTaskAllowanceSave(ctx context.Context, tx *sql.Tx, after, before runner.Run, definition []byte, artifacts []runner.Artifact, receipt *runner.Receipt) error {
 	var oldGrants, newGrants []runner.TaskAllowanceGrant
 	if before.TaskGraph != nil {
 		oldGrants = before.TaskGraph.AllowanceGrants
@@ -72,40 +64,38 @@ func (s *Store) loadTaskAllowanceFamily(ctx context.Context, tx *sql.Tx, root ru
 		return nil, err
 	}
 	defer rows.Close()
-	var family []runner.Run
-	var counts []int
+	type storedMember struct{ data, definition []byte }
+	var selected []storedMember
 	for rows.Next() {
-		var data, definition []byte
-		if err = rows.Scan(&data, &definition); err != nil {
+		var item storedMember
+		if err = rows.Scan(&item.data, &item.definition); err != nil {
 			return nil, err
 		}
-		var member runner.Run
-		if err = json.Unmarshal(data, &member); err != nil {
+		var header struct {
+			TaskGraph *struct {
+				RootRunID string `json:"root_run_id"`
+			} `json:"task_graph"`
+		}
+		if err = json.Unmarshal(item.data, &header); err != nil {
 			return nil, err
 		}
-		if member.TaskGraph == nil || member.TaskGraph.RootRunID != root.ID {
-			continue
+		if header.TaskGraph != nil && header.TaskGraph.RootRunID == root.ID {
+			selected = append(selected, item)
 		}
-		member, err := runner.UnmarshalRunRecord(data, definition)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	var family []runner.Run
+	for _, item := range selected {
+		member, err := s.loadRunRecord(ctx, tx, item.data, item.definition)
 		if err != nil {
 			return nil, err
 		}
-		count, err := storedAttemptCount(data)
-		if err != nil {
-			return nil, err
-		}
-		family, counts = append(family, member), append(counts, count)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	for i := range family {
-		if err := s.loadAttempts(ctx, tx, &family[i], counts[i]); err != nil {
-			return nil, err
-		}
+		family = append(family, member)
 	}
 	return family, nil
 }

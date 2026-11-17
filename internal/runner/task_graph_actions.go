@@ -228,7 +228,7 @@ func (c *Core) graphAction(r *Run, result *StepResult) error {
 		return fmt.Errorf("task proposal parent resumption: %w", err)
 	}
 	for _, spec := range action.Tasks {
-		child := c.graphChild(proposal, root, current[spec.ID])
+		child := graphChild(proposal, root, current[spec.ID])
 		if err := admitRunRecord(child, c.disk.Policy.Database.MaxRecord); err != nil {
 			return fmt.Errorf("task %s: %w", spec.ID, err)
 		}

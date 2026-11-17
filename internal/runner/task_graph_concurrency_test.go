@@ -130,6 +130,12 @@ func TestGeneralTasksParallelClaimsAndWholeWorkspaceReaders(t *testing.T) {
 	})
 	defer r.close()
 	root := begin(t, r.core, "parallel", "demo")
+	t.Cleanup(func() {
+		if t.Failed() {
+			state, _ := r.core.Get(root.ID)
+			t.Logf("dispatch failure: %s %s tasks=%+v", state.Status, state.Reason, state.TaskStatuses)
+		}
+	})
 	active := map[string]runner.Assignment{}
 	for range 3 {
 		a := executor.next(t)
@@ -435,6 +441,14 @@ func TestGeneralTasksShareOneActiveAttemptLimitAcrossFamilies(t *testing.T) {
 	firstRoot := begin(t, r.core, "first-capped-family", "demo")
 	first := executor.next(t)
 	secondRoot := begin(t, r.core, "second-capped-family", "second")
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, id := range []string{firstRoot.ID, secondRoot.ID} {
+				state, _ := r.core.Get(id)
+				t.Logf("dispatch failure: %s %s tasks=%+v", state.Status, state.Reason, state.TaskStatuses)
+			}
+		}
+	})
 	secondWorker := executor.next(t)
 	if first.ProjectID == secondWorker.ProjectID {
 		t.Fatal("machine limit unnecessarily serialized independent families")
