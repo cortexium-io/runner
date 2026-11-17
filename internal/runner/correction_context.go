@@ -79,6 +79,9 @@ func (c *Core) correctionArtifactDigest(r Run, id, expected string) error {
 // authorising another operation over a durably committed recovery.
 func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (Run, error) {
 	if grant := r.CorrectionRecovery; grant != nil && grant.RequestID == req.RequestID {
+		if req.CurrentRoute {
+			return c.outputRun(r), nil
+		}
 		return r, nil
 	}
 	rows, err := c.store.Load(c.ctx)
@@ -98,6 +101,9 @@ func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (
 		close(c.changed)
 		c.changed = make(chan struct{})
 		c.Wake()
+		if req.CurrentRoute {
+			return c.outputRun(saved), nil
+		}
 		return Clone(saved), nil
 	}
 	return Run{}, errors.New("committed correction recovery is unavailable; reopen the same state")

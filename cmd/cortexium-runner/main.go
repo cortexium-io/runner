@@ -80,7 +80,7 @@ func run(ctx context.Context, args []string) error {
 	bindingsSHA := fs.String("bindings-sha256", "", "authenticated read-only card recovery preflight digest")
 	reasonSHA := fs.String("reason-sha256", "", "exact blocked source reason digest for owner-adjudicated handoff")
 	preflight := fs.Bool("preflight", false, "read-only unpublished-card recovery preflight; no grant or dispatch")
-	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
+	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses: legacy recovery requires 3; --current-route requires current spent + 1")
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")

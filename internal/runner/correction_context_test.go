@@ -7,12 +7,28 @@ import (
 	"testing"
 )
 
-func TestCorrectionCurrentRouteFreshCheckRejoinsProtectedTail(t *testing.T) {
-	c, store, _, req := budgetCorrectionFixture(t)
+func currentCardCorrectionFixture(t *testing.T) (*Core, *frontendRecheckStore, *budgetCorrectionExecutor, RecoverCorrectionsRequest) {
+	t.Helper()
+	c, store, executor, req := budgetCorrectionFixture(t)
 	c.snapshot.Instance.EnforceWorkLimits = false
 	before := Clone(c.runs[req.RunID])
+	// The budgeting fixture omits frozen child execution metadata. Public result
+	// rendering needs the ordinary seed/owner/pin step identities for its usage.
+	for _, link := range before.TaskGroups["cards"].Children {
+		child := Clone(c.runs[link.RunID])
+		child.Process = Process{Steps: []Step{
+			{ID: "seed", Role: "fixture"},
+			{ID: "owner", Role: "fixture"},
+			{ID: "pin", Role: "fixture"},
+		}}
+		child.Roles = map[string]Role{"fixture": {Execution: &Profile{Harness: "deterministic"}}}
+		for i := range child.Attempts {
+			child.Attempts[i].Step = i
+		}
+		c.runs[child.ID] = child
+	}
 	req.WithinBudget, req.CurrentRoute = false, true
-	req.Revision = before.Revision
+	req.Revision = c.outputRun(before).Revision
 	key := before.Process.Steps[before.Step].ID + "/changes_requested"
 	req.MaxUses = before.RouteUses[key] + 1
 	patchID := before.Current().Source.InputPatchID
@@ -24,14 +40,26 @@ func TestCorrectionCurrentRouteFreshCheckRejoinsProtectedTail(t *testing.T) {
 		}
 		*target = correctionDigest(data)
 	}
+	return c, store, executor, req
+}
+
+func TestCorrectionCurrentRouteFreshCheckRejoinsProtectedTail(t *testing.T) {
+	c, store, _, req := currentCardCorrectionFixture(t)
+	before := Clone(c.runs[req.RunID])
+	if req.Revision <= before.Revision {
+		t.Fatal("fixture does not include source-card revisions")
+	}
 	_, definition, _ := MarshalRunRecord(before)
 	r, err := c.RecoverCorrections(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if r.Revision != c.outputRun(c.runs[r.ID]).Revision || r.Revision != req.Revision+1 {
+		t.Fatal("grant returned a private or pre-commit revision", r.Revision)
+	}
 	finishBudgetCorrectionOwner(t, c, store, &r, 1)
 	finishBudgetCorrectionCheck(t, c, store, &r, 1, true)
-	if r.Status != "Queued" || r.Process.Steps[r.Step].ID != "measure" || r.Decision != nil || r.RouteUses[key] != 4 {
+	if r.Status != "Queued" || r.Process.Steps[r.Step].ID != "measure" || r.Decision != nil || r.RouteUses[before.Process.Steps[before.Step].ID+"/changes_requested"] != 4 {
 		t.Fatal("current-route grant bypassed fresh checks or the protected delivery tail", r.Status, r.Reason)
 	}
 	_, after, _ := MarshalRunRecord(r)

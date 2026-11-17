@@ -118,7 +118,8 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	if current, ok := c.runs[r.ID]; !ok || current.Revision != r.Revision {
 		return Run{}, errors.New("run changed during source validation; inspect before recovery")
 	}
-	// Recheck all candidate/check/context bindings after source validation.
+	// Recheck the public family revision and all candidate/check/context bindings
+	// after source validation. A child's change need not change the private root.
 	if _, _, _, err := c.correctionRecovery(req); err != nil {
 		return Run{}, err
 	}
@@ -182,6 +183,9 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 		return Run{}, err
 	}
 	c.Wake()
+	if req.CurrentRoute {
+		return c.outputRun(c.runs[r.ID]), nil
+	}
 	return Clone(r), nil
 }
 
@@ -198,8 +202,8 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		return Run{}, SourceResult{}, nil, errors.New(reason)
 	}
 	if req.CurrentRoute {
-		if req.WithinBudget || req.PreserveSource || req.Revision < 1 || req.Revision != r.Revision || !validCorrectionSHA(req.PatchSHA256) || !validCorrectionSHA(req.CheckSHA256) {
-			return reject("current_route requires exact revision, patch/check SHA256 and settled source, without other recovery modes")
+		if req.WithinBudget || req.PreserveSource || req.Revision < 1 || req.Revision != c.outputRun(r).Revision || !validCorrectionSHA(req.PatchSHA256) || !validCorrectionSHA(req.CheckSHA256) {
+			return reject("current_route requires exact observed family revision, patch/check SHA256 and settled source, without other recovery modes")
 		}
 	} else if req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil {
 		return reject("exact correction bindings and supplemental context require current_route")
