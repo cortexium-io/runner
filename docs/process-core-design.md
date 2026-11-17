@@ -35,6 +35,19 @@ budget. The normal maintenance pause lets the current fixed check finish and
 clean up before installation; its results remain canonical. One audited guidance
 handoff then returns final verifier qualification, checks and reviews to Runner.
 
+Disk normalization is qualified at
+`d204d6fc408574b4a532ee70db308610bc2869c0`: all owning Core/SQLite race/vet
+suites pass (63.922/18.425 seconds), as do focused reference/context/restart
+regressions. Independent review found no P1/P2 and exact-commit Atlas inspected
+the 11-file/6-function change. Cold installation preserved every row of all 175
+then-retained runs and the combined instance; only compatibility markers moved
+from 17 through 18 to 19. The same paused family resumed at 109 spent, with
+pre-existing attempt bytes and frozen bindings unchanged. Its first normal
+persistence reduced state from 19,832 to 17,808 bytes despite the fuller owner
+directive, under the unchanged 20,480-byte reserve. Canonical installation and
+recovery receipts are `maintenance/proof-reuse-*` in the original intake. These
+are maintenance proofs; browser reuse and final product acceptance remain pending.
+
 The same linked Sudoku root stopped at 98 executions. Preserving only the last
 480 diagnostic bytes fixed a lost-tail defect but cannot establish preceding
 stage costs. More fundamentally, a new repair task receives successful scheduling
