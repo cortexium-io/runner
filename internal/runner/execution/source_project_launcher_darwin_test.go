@@ -136,14 +136,40 @@ func TestSourceProjectFixedLauncherAndAssemblyWithPinnedCFT(t *testing.T) {
 	focused := put("attempt_focus_fixture/result", map[string]any{"status": "passed", "fixture": "Synthetic focused component"})
 	_, assembled := run("attempt_assembly_fixture", "frontend-assemble-checks", map[string]runner.Value{"patch": patch, "reference": reference, "focused": focused, "project": projectArtifact, "experience": experience})
 	components := sourceProjectArchive(t, assembled)
-	if len(components) != 3 || len(components["project-review.json"]) == 0 || len(components["focused.json"]) == 0 {
-		t.Fatal("canonical checks duplicated images or omitted a named component")
+	if len(components) != len(files)+3 || len(components["project-review.json"]) == 0 || len(components["focused.json"]) == 0 {
+		t.Fatal("canonical checks omitted an original or complete project component")
+	}
+	var manifest struct {
+		Project struct {
+			handoffArtifact
+			Launcher string `json:"launcher_component"`
+			Files    map[string]struct {
+				Component string `json:"component"`
+				handoffFile
+			} `json:"files"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(components["launcher.json"], &manifest); err != nil || manifest.Project.ID != projectArtifact.ArtifactID || manifest.Project.SHA256 != digest(observed) || manifest.Project.Bytes != int64(len(observed)) || !bytes.Equal(components[manifest.Project.Launcher], files["launcher.json"]) || len(manifest.Project.Files) != len(files)-1 {
+		t.Fatal("assembled proof lost its canonical archive or exact project launcher identity", err)
+	}
+	seen := map[string]bool{
+		"launcher.json":       true,
+		"focused.json":        true,
+		"project-review.json": true,
+	}
+	seen[manifest.Project.Launcher] = true
+	for name, identity := range manifest.Project.Files {
+		original, exists := files[name]
+		if !exists || seen[identity.Component] || identity.Bytes != int64(len(original)) || identity.SHA256 != digest(original) || !bytes.Equal(components[identity.Component], original) {
+			t.Fatal("assembled proof omitted, replaced or collided with a complete project component", name)
+		}
+		seen[identity.Component] = true
 	}
 	focusedBytes, err := s.disk.Read("artifacts/"+focused.ArtifactID, s.disk.Policy.MaxArtifact)
 	if err != nil || !bytes.Equal(components["focused.json"], focusedBytes) {
 		t.Fatal("focused report was not preserved byte-for-byte", err)
 	}
-	t.Logf("exact staged launcher + assembly: captured current source, CFT %s phone/desktop interactions, read-only source, compact hash-bound components and scratch cleanup; no product/model judgment", observations.Browser)
+	t.Logf("exact staged launcher + assembly: captured current source, CFT %s phone/desktop interactions, read-only source, complete hash-bound components and scratch cleanup; no product/model judgment", observations.Browser)
 }
 
 func sourceProjectArchive(t *testing.T, archive []byte) map[string][]byte {
