@@ -31,6 +31,7 @@ type RecoverCorrectionsRequest struct {
 // budget mode protects completion, and current-route mode records a bounded
 // explicit correction count (historically one) for only the exhausted backedge.
 type CorrectionRecovery struct {
+	EvidenceHandoff   *EvidenceHandoff           `json:"evidence_handoff,omitempty"`
 	RequestID         string                     `json:"request_id"`
 	AttemptID         string                     `json:"attempt_id"`
 	Reason            string                     `json:"reason"`

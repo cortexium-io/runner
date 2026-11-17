@@ -364,6 +364,7 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
+	RecoveryEvidence        *CorrectionContext         `json:"recovery_evidence,omitempty"`
 	RecoveryContext         *CorrectionContext         `json:"recovery_context,omitempty"`
 	UnlimitedWork           bool                       `json:"unlimited_work,omitempty"`
 	TaskContext             *TaskContext               `json:"task_context,omitempty"`

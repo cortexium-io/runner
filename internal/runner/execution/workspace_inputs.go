@@ -121,6 +121,16 @@ func (c *Codex) verifyReviewSeed(j nativeJob, patchID string) error {
 
 func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte, error) {
 	files := map[string][]byte{}
+	if a.RecoveryEvidence != nil {
+		if _, collision := a.Inputs["recovery-evidence.tar.gz"]; collision {
+			return nil, errors.New("admitted evidence conflicts with a declared input name")
+		}
+		data, err := recoveryEvidenceData(disk, a)
+		if err != nil {
+			return nil, err
+		}
+		files["recovery-evidence.tar.gz"] = data
+	}
 	if proof := a.RecoveryContext; proof != nil {
 		if _, collision := a.Inputs["recovery-context.json"]; collision {
 			return nil, errors.New("supplemental context conflicts with a declared input name")

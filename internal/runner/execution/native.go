@@ -359,6 +359,9 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 			job.Workspace, job.Directory = &w, w.WorkDir
 		}
 	}
+	if _, err := recoveryEvidenceData(n.disk, *a); err != nil {
+		return err
+	}
 	if _, err := recoveryContextData(n.disk, *a); err != nil {
 		return err
 	}

@@ -172,6 +172,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, err := c.RecoverTasks(in)
 		return compactResult(r, time.Now()), err
 	})
+	add(s, "runner_recover_evidence_handoff", "Owner-only exact evidence admission for a settled blocked source owner in an existing current-route correction phase. Requires public revision, phase request, blocked/accepted/check attempts, exact patch/check and root-owned evidence identities, and explicit source/review recipients. Authenticates unchanged blocked source and bound project archive/owner reference. Appends an idempotent handoff audit and consumes the next existing route use through an ordinary owner visit. Preserves original inputs, failed history, prior grants, ceilings and protected approvals. Grants no retry, profile, access or allowance override. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverEvidenceHandoffRequest) (any, error) {
+		r, e := c.RecoverEvidenceHandoff(in)
+		return summary(r), e
+	})
 	add(s, "runner_recover_corrections", "Owner-authorized recovery of an exhausted saved source rejection. Legacy max_uses=3 covers eligible backedges. current_route requires exact revision, attempt, patch/check SHA256 and max_uses=current spent+additional_uses; the optional explicit positive count defaults to one. It grants only that current route a bounded correction phase, including with aggregate limits disabled. An explicitly authorized successive current_route recovery must name previous_request_id for the exact exhausted prior grant; all grants and their context artifacts remain retained and replayable. Optional bounded supplemental JSON is retained once with explicit future source/review role recipients, preserving original request bytes. within_budget instead uses existing enforced aggregate headroom with max_uses=0. Modes cannot combine. Frozen definitions, spending, other limits and protected approvals are unchanged. Routes the saved result without repeating its check.", func(ctx context.Context, in runner.RecoverCorrectionsRequest) (any, error) {
 		r, e := c.RecoverCorrections(in)
 		return summary(r), e

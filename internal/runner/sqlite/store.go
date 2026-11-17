@@ -485,6 +485,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	add(r.Inputs)
 	add(r.Outputs)
 	for grant := r.CorrectionRecovery; grant != nil; grant = grant.Previous {
+		for audit := grant.EvidenceHandoff; audit != nil; audit = audit.Previous {
+			refs[audit.Request.Evidence.ID] = true
+		}
 		if grant.Context != nil {
 			refs[grant.Context.ID] = true
 		}

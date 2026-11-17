@@ -609,6 +609,18 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		inputs[k] = json.RawMessage(v.Inline)
 	}
 	request := nativePayloadRequest{Task: a.Task, Inputs: inputs, MaxOutputBytes: p.MaxOutput}
+	if proof := a.RecoveryEvidence; proof != nil {
+		if p.Access == "input-only" {
+			return "", nil, nil, errors.New("admitted evidence requires workspace access")
+		}
+		request.RecoveryEvidence = &recoveryContextReference{
+			ArtifactID: proof.ID,
+			Path:       filepath.Join(".runner-tmp", "inputs", a.AttemptID, "recovery-evidence.tar.gz"),
+			Bytes:      proof.Bytes,
+			SHA256:     proof.SHA256,
+			Purpose:    recoveryEvidencePurpose,
+		}
+	}
 	if proof := a.RecoveryContext; proof != nil {
 		if p.Access == "input-only" {
 			return "", nil, nil, errors.New("supplemental recovery context requires workspace access")

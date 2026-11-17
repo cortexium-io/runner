@@ -43,7 +43,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunNativeWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|amend-roles|recover-tasks|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|amend-roles|recover-tasks|recover-corrections|recover-evidence-handoff|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -91,6 +91,11 @@ func run(ctx context.Context, args []string) error {
 	contextFile := fs.String("context-file", "", "bounded owner-supplied supplemental correction JSON")
 	contextSHA := fs.String("context-sha256", "", "exact SHA256 of supplemental correction JSON")
 	contextRoles := fs.String("context-roles", "", "JSON array of existing future source/review role recipients")
+	phaseRequest := fs.String("phase-request-id", "", "exact active correction phase for retained evidence handoff")
+	evidenceID := fs.String("evidence-id", "", "exact retained root-owned project evidence archive ID")
+	evidenceSHA := fs.String("evidence-sha256", "", "exact retained evidence SHA256")
+	evidenceBytes := fs.Int64("evidence-bytes", 0, "exact retained evidence byte count")
+	evidenceRoles := fs.String("evidence-roles", "", "JSON array of existing source/review evidence recipients")
 	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
@@ -109,6 +114,38 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if command == "recover-evidence-handoff" {
+		allowed := map[string]bool{
+			"data":             true,
+			"endpoint":         true,
+			"run":              true,
+			"revision":         true,
+			"request-id":       true,
+			"attempt":          true,
+			"source-attempt":   true,
+			"patch-sha256":     true,
+			"check-attempt":    true,
+			"check-sha256":     true,
+			"phase-request-id": true,
+			"evidence-id":      true,
+			"evidence-sha256":  true,
+			"evidence-bytes":   true,
+			"evidence-roles":   true,
+		}
+		bad := false
+		fs.Visit(func(f *flag.Flag) { bad = bad || !allowed[f.Name] })
+		if bad || *runID == "" || *revision < 1 || *attemptID == "" || *sourceAttemptID == "" || *patchSHA256 == "" || *checkAttemptID == "" || *checkSHA256 == "" || *phaseRequest == "" || *evidenceID == "" || *evidenceSHA == "" || *evidenceBytes < 1 || *evidenceRoles == "" {
+			return errors.New("recover-evidence-handoff requires exact run/revision, phase-request-id, attempt/source-attempt/check-attempt, patch/check SHA256 and evidence-id/evidence-sha256/evidence-bytes/evidence-roles; no overrides")
+		}
+	} else if *phaseRequest != "" || *evidenceID != "" || *evidenceSHA != "" || *evidenceBytes != 0 || *evidenceRoles != "" {
+		return errors.New("evidence handoff flags require recover-evidence-handoff")
+	}
+	var handoffRoles []string
+	if command == "recover-evidence-handoff" {
+		if err := json.Unmarshal([]byte(*evidenceRoles), &handoffRoles); err != nil || len(handoffRoles) == 0 {
+			return errors.New("evidence-roles must be a nonempty JSON array")
+		}
 	}
 	var additionalCorrectionUses *int
 	fs.Visit(func(f *flag.Flag) {
@@ -195,8 +232,8 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("continue-task requires exact --run/--revision, --project/--process, --source-attempt/--patch-sha256 and --check-attempt/--check-sha256; it grants no command, profile, allowance or approval override")
 		}
 	}
-	if *sourceAttemptID != "" && command != "continue-task" {
-		return errors.New("--source-attempt requires continue-task")
+	if *sourceAttemptID != "" && command != "continue-task" && command != "recover-evidence-handoff" {
+		return errors.New("--source-attempt requires continue-task or recover-evidence-handoff")
 	}
 	if *preflight && command != "recover-unpublished-card" && command != "adjudicate-source-handoff" {
 		return errors.New("--preflight requires recover-unpublished-card or adjudicate-source-handoff")
@@ -416,6 +453,29 @@ func run(ctx context.Context, args []string) error {
 			Action:    *action,
 			Text:      *text,
 			Profile:   *profile,
+		}
+	case "recover-evidence-handoff":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_recover_evidence_handoff"
+		a = runner.RecoverEvidenceHandoffRequest{
+			RequestID:       *requestID,
+			RunID:           *runID,
+			Revision:        *revision,
+			PhaseRequestID:  *phaseRequest,
+			AttemptID:       *attemptID,
+			SourceAttemptID: *sourceAttemptID,
+			PatchSHA256:     *patchSHA256,
+			CheckAttemptID:  *checkAttemptID,
+			CheckSHA256:     *checkSHA256,
+			Evidence: runner.CorrectionContext{
+				ID:     *evidenceID,
+				Bytes:  *evidenceBytes,
+				SHA256: *evidenceSHA,
+				Roles:  handoffRoles,
+			},
 		}
 	case "recover-corrections":
 		if !*currentRoute && (*previousRequest != "" || *revision != 0 || *patchSHA256 != "" || *checkSHA256 != "" || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {

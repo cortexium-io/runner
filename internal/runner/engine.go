@@ -899,6 +899,10 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Outcomes:      stepOutcomes(step),
 		Deadline:      a.Deadline,
 	}
+	assignment.RecoveryEvidence, e = c.evidenceHandoffAssignment(r, a)
+	if e != nil {
+		return Assignment{}, e
+	}
 	assignment.RecoveryContext, e = c.correctionAssignmentContext(r, a)
 	if e != nil {
 		return Assignment{}, e

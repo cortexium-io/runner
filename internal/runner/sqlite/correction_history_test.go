@@ -19,10 +19,18 @@ func TestCorrectionHistoryAndBothContextsSurviveRestart(t *testing.T) {
 	}
 	r := runner.Run{ID: "run_corrections", ProjectID: "demo", Status: "Failed", CorrectionRecovery: &runner.CorrectionRecovery{
 		RequestID: "second", CurrentRoute: true, MaxUses: 5, PreviousUses: 4,
+		EvidenceHandoff: &runner.EvidenceHandoff{Request: runner.RecoverEvidenceHandoffRequest{
+			RequestID: "handoff", PhaseRequestID: "second",
+			Evidence: runner.CorrectionContext{ID: "retained-project-archive", Bytes: 7, SHA256: "archive-sha", Roles: []string{"owner"}},
+		}},
 		Context:  &runner.CorrectionContext{ID: "second-context", Bytes: 2, SHA256: "second-sha", Roles: []string{"owner"}},
 		Previous: &runner.CorrectionRecovery{RequestID: "first", CurrentRoute: true, MaxUses: 4, PreviousUses: 3, Context: &runner.CorrectionContext{ID: "first-context", Bytes: 2, SHA256: "first-sha", Roles: []string{"owner"}}},
 	}}
-	artifacts := []runner.Artifact{{ID: "first-context", RunID: r.ID, ProjectID: r.ProjectID, Bytes: 2}, {ID: "second-context", RunID: r.ID, ProjectID: r.ProjectID, Bytes: 2}}
+	artifacts := []runner.Artifact{
+		{ID: "first-context", RunID: r.ID, ProjectID: r.ProjectID, Bytes: 2},
+		{ID: "second-context", RunID: r.ID, ProjectID: r.ProjectID, Bytes: 2},
+		{ID: "retained-project-archive", RunID: r.ID, ProjectID: r.ProjectID, Bytes: 7},
+	}
 	if err := s.Save(t.Context(), r, artifacts, nil); err != nil {
 		s.Close()
 		t.Fatal(err)

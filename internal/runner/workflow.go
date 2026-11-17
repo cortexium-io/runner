@@ -128,6 +128,12 @@ func (c *Core) route(r *Run, a *Attempt) {
 }
 
 func (c *Core) advance(r *Run, result *StepResult, route Route) {
+	c.advanceInputs(r, result, route, nil)
+}
+
+// Resolved inputs are supplied only by exact retained-input recovery. Ordinary
+// routes always resolve their configured bindings before invalidation.
+func (c *Core) advanceInputs(r *Run, result *StepResult, route Route, resolved map[string]Value) {
 	key := routeUseKey(*r, r.Step, result.Outcome)
 	if r.RouteUses == nil {
 		r.RouteUses = map[string]int{}
@@ -165,7 +171,11 @@ func (c *Core) advance(r *Run, result *StepResult, route Route) {
 	}
 	// Freeze feedback and the retained patch before invalidating downstream
 	// results. A later finish cannot reuse proof for an earlier candidate.
-	inputs, err := bindings(*r, r.Process.Steps[next].Inputs)
+	inputs := Clone(resolved)
+	var err error
+	if inputs == nil {
+		inputs, err = bindings(*r, r.Process.Steps[next].Inputs)
+	}
 	if err != nil {
 		r.Status, r.Reason = "Failed", fmt.Sprintf("route to %s: %v", route.Next, err)
 		return

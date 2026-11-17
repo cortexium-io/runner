@@ -7,6 +7,37 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Exact evidence handoff recovery, authorised 17 November 2026
+
+Dan approved "Fix handoff and continue" for the retained Pocket Hideout run.
+Its seventh correction owner returned `blocked` without changing the accepted
+tree or patch because the compact aggregate omitted the full diagnostic report
+and screenshots. The immutable aggregate does identify the retained same-root
+full archive. The active three-use phase has spent seven of its eight total
+route uses; its final use is already approved. Preserve every failure, prior
+grant, original input and protected decision. No ninth use, retry grant, external
+product check, merge or production action follows from this maintenance.
+
+The explicit generic owner action `recover-evidence-handoff` authenticates the
+public revision, phase, blocked/accepted/check identities, unchanged capture,
+same-root archive producer, exact artifact hashes/sizes and frozen candidate/
+owner-reference bindings. Existing source recovery validates the actual blocked
+capture. The execution adapter owns bounded project-archive/launcher parsing;
+Core owns authority, lifecycle, retained ownership and route spending. Admission
+adds an audited exact read-only archive reference to the existing phase and
+future selected roles' protected inputs, preserving the supplemental context.
+The normal correction edge consumes the remaining use and dispatches an ordinary
+source owner with the original frozen inputs and fresh downstream checks/reviews.
+It creates neither a successful source result nor a new correction grant.
+
+The qualified assembler change retains full bounded report/image components in
+future aggregates while keeping the original archive's canonical identity. Old
+aggregate bytes remain unchanged. Model-free qualification covers mismatch and
+cleanup rejection, exact legacy/native staging, phase exhaustion/protected-tail
+behavior, and SQLite refusal/lost-acknowledgement/lost-read/restart/old-receipt
+reconciliation. Installation and the real use-eight continuation remain owned by
+the coordinating session after integration and independent review.
+
 ### Verification lifecycle correction, authorised 17 November 2026
 
 The real reuse qualification now passes: one fixed check executed the remaining

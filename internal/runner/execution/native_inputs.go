@@ -14,6 +14,7 @@ import (
 )
 
 type nativePayloadRequest struct {
+	RecoveryEvidence      *recoveryContextReference `json:"recovery_evidence,omitempty"`
 	RecoveryContext       *recoveryContextReference `json:"recovery_context,omitempty"`
 	WorkPolicy            string                    `json:"work_policy,omitempty"`
 	Task                  string                    `json:"task"`

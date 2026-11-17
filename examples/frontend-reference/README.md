@@ -75,13 +75,25 @@ The fixed assembly step retains the original focused JSON byte-for-byte as
 `focused.json`, a compact project manifest with canonical artifact identity/SHA,
 and `project-review.json`. It requires current matching patch/owner/verifier/
 archive identities, exact inspected image names and an approving judgment with
-no project observation gaps. Full PNGs stay in the original project archive;
-assembly copies no images or encoded archive. Focused/project failures still
+no project observation gaps. The original project archive remains canonical;
+assembly also retains exact bounded report/PNG components under generated names,
+with original-name/component/hash/size mappings and the exact project launcher.
+Focused/project failures still
 produce the canonical checks artifact for the existing correction owner, without
 pretending a later image review ran. Original eight-input owner/review contracts
 remain unchanged. Mandatory review personally views its sealed nine-family
 images and reads the independent supplemental judgment without claiming to have
 viewed those supplemental images itself.
+
+An owner may explicitly recover an old compact-aggregate handoff with
+`recover-evidence-handoff`. It admits only the hash/size-bound original archive
+to named future source/review roles through protected read-only inputs. The
+blocked owner must have left the accepted source unchanged; the saved check and
+archive must identify that same candidate and declared owner reference. Recovery
+consumes the next use of the active correction phase, retaining the blocked
+attempt, every earlier grant and the original inputs. It grants no allowance or
+approval; the new owner and all fresh downstream checks/reviews remain ordinary
+Runner execution.
 
 All configured focused checks, broad nine-family qualification, authenticated
 candidate export, independent image judgment, native Safari gate and protected

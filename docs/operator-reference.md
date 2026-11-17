@@ -465,6 +465,28 @@ extra allowance is at most four, with the total still bounded at 128. A grant
 increases the run total and only the current step visit's execution allowance;
 advancing to another step or correction visit restores its configured limit.
 
+`recover-evidence-handoff` is a separate owner action for a source owner blocked
+by an incomplete compact check handoff. It requires the exact public revision,
+active `--phase-request-id`, blocked `--attempt`, accepted `--source-attempt`,
+`--patch-sha256`, prior `--check-attempt`/`--check-sha256`, and retained
+`--evidence-id`/`--evidence-sha256`/`--evidence-bytes` plus explicit JSON
+`--evidence-roles`. The original full archive must belong to this root and its
+producer, saved check and frozen declarations must bind the same candidate and
+owner reference. The blocked owner's captured tree and patch bytes must equal
+the accepted source. All attempts and cleanup must already have settled.
+
+This action appends a receipt/audit to the existing current-route phase and
+consumes its next remaining use through the saved correction edge. It does not
+increase any ceiling, retry allowance or profile, change frozen inputs, replace
+old archive bytes, or convert the blocked result into success. Only named future
+source/review roles receive the exact archive in their existing protected input
+namespace. The next source owner runs normally and must pass all fresh checks,
+reviews and protected gates. An exhausted phase rejects admission. Reuse the
+same request ID and exact arguments after disconnect; replay and restart recover
+the committed audit without spending again. Ordinary `recover-corrections`
+continues to require an exhausted returned source-check rejection and cannot
+recover a blocked source owner.
+
 Status returns at most the 100 most recently updated summaries plus `total_runs`,
 configuration/storage errors and content-byte accounting. Inspect returns one
 bounded record with resolved setup, attempts, outputs, usage and cleanup state.
