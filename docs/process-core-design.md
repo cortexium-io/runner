@@ -318,6 +318,27 @@ the exact fourth-use stop before one operator grant. Product verification repair
 and fresh source/image checks remain inside Runner; merge/production authority
 does not follow from this maintenance.
 
+The retained shared-command check omitted its duplicate `input_patch_id`, although
+owned workspace preparation authenticated the candidate and the current step
+retained its exact `FromCandidate` binding. Compatibility fix `da5d279f408a` uses
+that persisted binding only for an empty stamp on a matching command/shared/read
+observation; conflicting stamps, source coordinates, artifact hashes and retained
+source validation still reject. No historical observation is rewritten. The
+public-family regression now also proves one owner dispatch and restart/replay,
+with valid simulated child source ownership. Focused and full ordinary Core race
+tests/vet passed, with independent review and exact Code Atlas comparison.
+
+Installation on 17 November preserved all 187 retained runs, every existing table
+fingerprint, schema 20, configuration and the accepted Sudoku preview processes.
+The original house-ad root `run_TG4CTU2LRBS3WSH4GVZIQAIFQE` then received its one
+approved current-route grant at public revision 407: spending 3 became 4 under
+ceiling 4, with frozen bindings and prior attempt facts preserved. Native product
+correction resumed; this establishes recovery, not product acceptance or release.
+Canonical installation/grant receipts are under
+`/Users/dan/Projects/runner-qualifications/20261117/pocket-hideout-recovery/`.
+The provenance repair is tracked in
+[Runner issue 131](https://github.com/cortexium-io/runner/issues/131).
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed
