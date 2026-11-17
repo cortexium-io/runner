@@ -46,18 +46,20 @@ func TestNormalizedHistoryHasNoHiddenAggregateAttemptCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 20 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 21 {
 		t.Fatalf("general task physical attempt range lacks its versioned schema: %d %v", version, err)
 	}
 }
 
 func TestGeneralTaskSchemaUpgradePreservesRetainedBytes(t *testing.T) {
-	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18} {
+	for _, version := range []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := normalizedRun(2)
 			s := openNormalized(t, r)
-			if _, err := s.db.Exec("DROP TABLE role_task_links"); err != nil {
-				t.Fatal(err)
+			if version < 20 {
+				if _, err := s.db.Exec("DROP TABLE role_task_links"); err != nil {
+					t.Fatal(err)
+				}
 			}
 			// Restore the actual earlier schema, including absence of the
 			// follow-up retention index, before exercising its upgrade.
@@ -107,7 +109,7 @@ PRAGMA user_version=3; COMMIT;`); err != nil {
 				t.Fatalf("schema migration rewrote retained data: %v", err)
 			}
 			var marker int
-			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 20 {
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 21 {
 				t.Fatalf("native-policy downgrade guard missing: version=%d error=%v", marker, err)
 			}
 		})

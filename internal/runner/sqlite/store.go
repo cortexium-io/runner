@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 20 {
+	if version < 0 || version > 21 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -291,6 +291,13 @@ position INTEGER NOT NULL CHECK(position>=0),child_run_id TEXT NOT NULL,data BLO
 result_position INTEGER CHECK(result_position IS NULL OR result_position>=0),
 PRIMARY KEY(parent_run_id,position),UNIQUE(parent_run_id,child_run_id),UNIQUE(parent_run_id,result_position));
 PRAGMA user_version=20; COMMIT;`); e != nil {
+			return nil, e
+		}
+		version = 20
+	}
+	if version == 20 {
+		// Earlier writers cannot retain model-only fixed-process definition audits.
+		if _, e = db.Exec("PRAGMA user_version=21"); e != nil {
 			return nil, e
 		}
 	}

@@ -330,7 +330,7 @@ func TestRoleTaskLinksSchema19OpenPreservesPayloadsAndNormalizesOnlyOnSave(t *te
 	if json.Unmarshal(source, &retained) != nil || retained.Source == nil || retained.Source.AttemptID != duplicate.ID {
 		t.Fatal("normalization replaced the exact retained spec_source", string(source))
 	}
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 20 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 21 {
 		t.Fatal("missing fail-closed version boundary", err)
 	}
 }

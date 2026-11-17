@@ -20,7 +20,8 @@ general root or failed fixed-process root. It preserves the complete prior
 definition and actual historical child/attempt records. Future visits, including
 retained children, use the root’s explicit audited selection. This control does
 not resume work, change reasoning/access/allowances or approve release; never
-edit SQLite or relabel old proof. Runtime/config installation
+edit SQLite or relabel old proof. SQLite marker 21 prevents older writers from silently discarding model-only
+fixed-process audits; this changes no table or retained row. Runtime/config installation
 must wait for the owning session's settled maintenance handoff.
 
 The shipped execution adapter owns role instructions and structured results.
