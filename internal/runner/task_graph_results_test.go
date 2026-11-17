@@ -2,9 +2,12 @@ package runner_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -140,6 +143,112 @@ func TestGeneralTaskRepairOwnerReceivesSettledFailureDiagnostic(t *testing.T) {
 	}
 }
 
+func TestGeneralTaskDelegatedRepairReceivesExactFailedResult(t *testing.T) {
+	s := graphSnapshot(t)
+	history := []byte("frontend passed; build passed; browser operation failed\n")
+	var repaired bool
+	r := openRig(t, t.TempDir(), s, func(e runner.Executor) runner.Executor {
+		return graphExecutor{e, func(a runner.Assignment) runner.Observation {
+			switch a.TaskContext.TaskID {
+			case "check":
+				if err := os.MkdirAll(a.OutputDir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				hash := fmt.Sprintf("%x", sha256.Sum256(history))
+				if err := os.WriteFile(filepath.Join(a.OutputDir, "command-"+hash+".log"), history, 0600); err != nil {
+					t.Fatal(err)
+				}
+				return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{
+					Kind: "stopped", Reason: "deadline", Diagnostic: "browser failed",
+					DiagnosticArtifact: &runner.DiagnosticArtifact{ID: a.AttemptID + "/command-" + hash + ".log", Bytes: int64(len(history)), SHA256: hash},
+				}}
+			case "repair":
+				if len(a.TaskContext.Results) != 1 {
+					t.Fatal("repair did not receive only selected evidence")
+				}
+				result := a.TaskContext.Results[0]
+				if result.ID != "check" || result.Status != "Failed" || result.DiagnosticArtifact == nil || len(result.Outputs) != 0 {
+					t.Fatal("failure was lost or promoted", result)
+				}
+				data, err := os.ReadFile(filepath.Join(filepath.Dir(a.OutputDir), result.DiagnosticArtifact.ID))
+				if err != nil || string(data) != string(history) {
+					t.Fatal("retained failure history unavailable", err)
+				}
+				repaired = true
+				return graphFinal("repair qualified")
+			default:
+				if len(a.TaskContext.Results) == 0 {
+					return graphAction("delegate", graphTask("check", "writer"))
+				}
+				if len(a.TaskContext.Results) == 1 {
+					result := a.TaskContext.Results[0]
+					task := graphTask("repair", "writer")
+					task.ResultInputs = []runner.TaskResultRef{{ID: result.ID, RunID: result.RunID}}
+					return graphAction("delegate", task)
+				}
+				return graphFinal("accepted repair")
+			}
+		}}
+	})
+	defer r.close()
+	root := begin(t, r.core, "delegated-failure-evidence", "demo")
+	done := await(t, r.core, root.ID, released)
+	if done.Status != "Completed" || !repaired {
+		t.Fatal("repair handoff failed", done.Reason)
+	}
+	rows, err := r.store.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.TaskGraph.TaskID == "check" {
+			if row.Status != "Failed" || len(row.Attempts) != 1 || !row.Attempts[0].Released || row.Attempts[0].End.DiagnosticArtifact == nil {
+				t.Fatal("failed producer was changed", row.Status)
+			}
+		}
+		if row.TaskGraph.TaskID == "repair" && len(row.TaskGraph.ResultInputs) != 1 {
+			t.Fatal("exact result reference was not persisted")
+		}
+	}
+}
+
+func TestGeneralTaskResultInputsRejectUnavailableOrDuplicateEvidence(t *testing.T) {
+	for _, mode := range []string{"foreign", "mismatched", "duplicate"} {
+		t.Run(mode, func(t *testing.T) {
+			r := openRig(t, t.TempDir(), graphSnapshot(t), func(e runner.Executor) runner.Executor {
+				return graphExecutor{e, func(a runner.Assignment) runner.Observation {
+					if a.TaskContext.TaskID != "root" {
+						return graphFinal("source")
+					}
+					if len(a.TaskContext.Results) == 0 {
+						return graphAction("delegate", graphTask("source", "writer"))
+					}
+					result := a.TaskContext.Results[0]
+					ref := runner.TaskResultRef{ID: result.ID, RunID: result.RunID}
+					task := graphTask("repair", "writer")
+					if mode == "foreign" {
+						ref.RunID = "foreign"
+					}
+					if mode == "mismatched" {
+						ref.ID = "wrong-task"
+					}
+					task.ResultInputs = []runner.TaskResultRef{ref}
+					if mode == "duplicate" {
+						task.ResultInputs = append(task.ResultInputs, ref)
+					}
+					return graphAction("delegate", task)
+				}}
+			})
+			defer r.close()
+			root := begin(t, r.core, "bad-result-input-"+mode, "demo")
+			done := await(t, r.core, root.ID, released)
+			if done.Status != "Failed" || !strings.Contains(done.Reason, "task result inputs require") {
+				t.Fatal("unavailable result authority admitted", done.Status, done.Reason)
+			}
+		})
+	}
+}
+
 type rejectTerminalDiagnosticStore struct {
 	runner.Store
 	rejected atomic.Bool
@@ -159,16 +268,25 @@ func TestGeneralTaskFailedTerminalSaveRetainsDiagnosticThroughCleanupAndReopen(t
 	r.core.Close()
 	store := &rejectTerminalDiagnosticStore{Store: r.store}
 	diagnostic := "stage=browser; output observed before terminal save"
+	history := []byte("frontend passed; build passed; browser failure; preserved before terminal save\n")
+	var retainedID string
 	var received bool
 	e := graphExecutor{r.backend, func(a runner.Assignment) runner.Observation {
 		if a.TaskContext.TaskID != "root" {
-			return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "stopped", Reason: "deadline", Diagnostic: diagnostic}}
+			hash := fmt.Sprintf("%x", sha256.Sum256(history))
+			retainedID = a.AttemptID + "/command-" + hash + ".log"
+			if err := r.disk.Write("artifacts/"+retainedID, history, a.Limits.MaxLog); err != nil {
+				t.Error(err)
+			}
+			return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "stopped", Reason: "deadline", Diagnostic: diagnostic,
+				DiagnosticArtifact: &runner.DiagnosticArtifact{ID: retainedID, Bytes: int64(len(history)), SHA256: hash},
+			}}
 		}
 		if len(a.TaskContext.Results) == 0 {
 			return graphAction("delegate", graphTask("check", "writer"))
 		}
 		result := a.TaskContext.Results[0]
-		received = result.Status == "Failed" && result.Diagnostic == diagnostic && strings.Contains(result.Reason, "result persistence rejected") && len(result.Outputs) == 0
+		received = result.Status == "Failed" && result.Diagnostic == diagnostic && result.DiagnosticArtifact != nil && strings.Contains(result.Reason, "result persistence rejected") && len(result.Outputs) == 0
 		return graphFinal("failure evidence received")
 	}}
 	core, err := runner.New(t.Context(), store, e, r.disk, s)
@@ -192,6 +310,9 @@ func TestGeneralTaskFailedTerminalSaveRetainsDiagnosticThroughCleanupAndReopen(t
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	if artifact, err := reopened.Artifact(t.Context(), retainedID); err != nil || artifact.Bytes != int64(len(history)) {
+		t.Fatal("terminal fallback did not register retained diagnostic", err)
+	}
 	rows, err := reopened.Load(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +321,7 @@ func TestGeneralTaskFailedTerminalSaveRetainsDiagnosticThroughCleanupAndReopen(t
 		if child.TaskGraph.TaskID != "check" {
 			continue
 		}
-		if len(child.Attempts) != 1 || !child.Attempts[0].Released || child.Attempts[0].End.Diagnostic != diagnostic || child.Attempts[0].End.Kind != "failed" || len(child.Outputs) != 0 {
+		if len(child.Attempts) != 1 || !child.Attempts[0].Released || child.Attempts[0].End.Diagnostic != diagnostic || child.Attempts[0].End.DiagnosticArtifact == nil || child.Attempts[0].End.Kind != "failed" || len(child.Outputs) != 0 {
 			t.Fatal("fallback/release/reopen changed canonical failure evidence", child)
 		}
 		return

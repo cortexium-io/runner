@@ -25,10 +25,14 @@ func TestHarnessStructuredTasksAndDeliverable(t *testing.T) {
 	if err != nil || !strings.Contains(prompt, "Write an article") || !strings.Contains(string(schema), "task_action") {
 		t.Fatalf("task context/schema: %v", err)
 	}
-	control := `{"outcome":"ready","outputs":{},"reason":"Independent draft","task_action":{"kind":"delegate","reason":"Independent draft","tasks":[{"id":"draft","role":"writer","brief":"Write the article","inputs":[{"name":"brief","kind":"text","value":"Complete draft"}],"acceptance":["Complete article"],"depends_on":[],"write_paths":[]}],"replace":[],"question":""}}`
+	control := `{"outcome":"ready","outputs":{},"reason":"Independent draft","task_action":{"kind":"delegate","reason":"Independent draft","tasks":[{"id":"draft","role":"writer","brief":"Write the article","inputs":[{"name":"brief","kind":"text","value":"Complete draft"}],"acceptance":["Complete article"],"depends_on":[],"result_inputs":[{"id":"failed-check","run_id":"run_check"}],"write_paths":[]}],"replace":[],"question":""}}`
 	end, err := harnessResult(a, []byte(control), t.TempDir(), nil)
 	if err != nil || end.Result == nil || end.Result.TaskAction == nil || end.Result.TaskAction.Tasks[0].Inputs["brief"].Validate() != nil {
 		t.Fatalf("task action lost: %+v %v", end, err)
+	}
+	refs := end.Result.TaskAction.Tasks[0].ResultInputs
+	if len(refs) != 1 || refs[0] != (runner.TaskResultRef{ID: "failed-check", RunID: "run_check"}) || !strings.Contains(string(schema), "result_inputs") {
+		t.Fatal("native task lost its explicit result context", refs)
 	}
 	article := strings.Repeat("Substantial complete writing. ", 350)
 	result, _ := json.Marshal(map[string]any{"outcome": "ready", "outputs": map[string]string{"article": article}, "reason": "Complete", "task_action": nil})

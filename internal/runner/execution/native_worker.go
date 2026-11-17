@@ -40,6 +40,7 @@ type harnessSpec struct {
 }
 
 type harnessReceipt struct {
+	commandLog            []byte
 	AttemptID             string                `json:"attempt_id"`
 	Kind                  string                `json:"kind"`
 	Final                 []byte                `json:"final,omitempty"`
@@ -623,6 +624,7 @@ running:
 
 func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped bool, runErr error, stopReason string) harnessReceipt {
 	result := harnessReceipt{
+		commandLog:       events.commandLog,
 		AttemptID:        a.AttemptID,
 		Kind:             "returned",
 		Final:            events.Final,
@@ -656,6 +658,21 @@ func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped 
 }
 
 func writeHarnessReceipt(spec harnessSpec, result harnessReceipt, known map[string]bool) error {
+	if spec.Shared && len(result.commandLog) > 0 {
+		var final commandResult
+		if err := json.Unmarshal(result.Final, &final); err != nil || final.AttemptID != spec.Assignment.AttemptID {
+			return errors.New("configured-command diagnostic identity differs")
+		}
+		proof, err := writeCommandDiagnostic(spec.Assignment, result.commandLog)
+		if err != nil {
+			return err
+		}
+		final.DiagnosticArtifact = proof
+		result.Final, err = json.Marshal(final)
+		if err != nil {
+			return err
+		}
+	}
 	result.Output = spec.Output
 	if !result.ModelLaunched {
 		if err := settleNativeChildren(spec.Owner, time.Now().Add(-time.Minute), known, func(nativeChild) {}); err != nil {

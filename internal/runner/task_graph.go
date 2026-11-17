@@ -191,14 +191,15 @@ func (c *Core) graphChild(parent, root Run, link RoleTaskLink) Run {
 			AttemptTimeout:        root.Process.AttemptTimeout,
 		},
 		TaskGraph: &TaskGraphState{
-			RootRunID:   root.ID,
-			ParentRunID: parent.ID,
-			TaskID:      link.Spec.ID,
-			Role:        role.ID,
-			Brief:       link.Spec.Brief,
-			Acceptance:  Clone(link.Spec.Acceptance),
-			DependsOn:   deps,
-			WritePaths:  Clone(link.Spec.WritePaths),
+			RootRunID:    root.ID,
+			ParentRunID:  parent.ID,
+			TaskID:       link.Spec.ID,
+			Role:         role.ID,
+			Brief:        link.Spec.Brief,
+			Acceptance:   Clone(link.Spec.Acceptance),
+			DependsOn:    deps,
+			ResultInputs: Clone(link.Spec.ResultInputs),
+			WritePaths:   Clone(link.Spec.WritePaths),
 		},
 	}
 	return child
@@ -206,13 +207,14 @@ func (c *Core) graphChild(parent, root Run, link RoleTaskLink) Run {
 
 func graphResult(r Run) RoleTaskResult {
 	return RoleTaskResult{
-		ID:         r.TaskGraph.TaskID,
-		RunID:      r.ID,
-		Role:       r.TaskGraph.Role,
-		Status:     r.Status,
-		Reason:     r.Reason,
-		Diagnostic: r.LatestDiagnostic(),
-		Outputs:    Clone(r.Outputs),
+		ID:                 r.TaskGraph.TaskID,
+		RunID:              r.ID,
+		Role:               r.TaskGraph.Role,
+		Status:             r.Status,
+		Reason:             r.Reason,
+		Diagnostic:         r.LatestDiagnostic(),
+		DiagnosticArtifact: r.LatestDiagnosticArtifact(),
+		Outputs:            Clone(r.Outputs),
 	}
 }
 
@@ -243,6 +245,33 @@ func (c *Core) graphResults(r Run) ([]RoleTaskResult, error) {
 			return nil, errors.New("declared task dependency has no accepted result")
 		}
 		results = append(results, graphResult(dep))
+		seen[dep.ID] = true
+	}
+	if len(g.ResultInputs) > 0 {
+		parent, exists := c.runs[g.ParentRunID]
+		if !exists || parent.TaskGraph == nil || parent.TaskGraph.RootRunID != root.ID {
+			return nil, errors.New("task result inputs have no owning parent")
+		}
+		authorized := false
+		for _, link := range parent.TaskGraph.Children {
+			if link.RunID == r.ID && link.Spec.ID == g.TaskID && slices.Equal(link.Spec.ResultInputs, g.ResultInputs) {
+				authorized = true
+				break
+			}
+		}
+		if !authorized {
+			return nil, errors.New("task result inputs differ from their admitted specification")
+		}
+		for _, ref := range g.ResultInputs {
+			producer, exists := c.runs[ref.RunID]
+			if !exists || producer.TaskGraph == nil || producer.ProjectID != r.ProjectID || producer.TaskGraph.RootRunID != root.ID || producer.TaskGraph.TaskID != ref.ID || !producer.Terminal() || !c.graphSubtreeSettled(producer) {
+				return nil, errors.New("task result input no longer identifies its settled producer")
+			}
+			if !seen[ref.RunID] {
+				results = append(results, graphResult(producer))
+				seen[ref.RunID] = true
+			}
+		}
 	}
 	return results, nil
 }
@@ -395,6 +424,9 @@ func (c *Core) graphArtifactAllowed(r Run, id string) bool {
 		return false
 	}
 	for _, result := range ctx.Results {
+		if result.DiagnosticArtifact != nil && result.DiagnosticArtifact.ID == id && artifact.RunID == result.RunID {
+			return true
+		}
 		for _, value := range result.Outputs {
 			if value.ArtifactID == id {
 				owner, exists := c.runs[result.RunID]
@@ -402,6 +434,9 @@ func (c *Core) graphArtifactAllowed(r Run, id string) bool {
 					return false
 				}
 				linked := slices.Contains(r.TaskGraph.DependsOn, owner.ID)
+				for _, ref := range r.TaskGraph.ResultInputs {
+					linked = linked || ref.RunID == owner.ID && ref.ID == owner.TaskGraph.TaskID
+				}
 				for _, child := range r.TaskGraph.Children {
 					linked = linked || child.RunID == owner.ID
 				}

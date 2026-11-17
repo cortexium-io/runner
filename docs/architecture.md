@@ -36,6 +36,14 @@ before dispatch. A parent resumes with accepted child/dependency results and the
 same original goal; invalid proposals return bounded feedback to the same visit.
 No separate planner daemon, scheduler, event store or product task ledger is added.
 
+An explicit `RoleTask.ResultInputs` selects exact settled results already available
+to its parent. Only immutable task/run references are persisted; the child receives
+the canonical status, outputs and bounded command diagnostic artifact in ordinary
+task context. This permits failed-check evidence to reach a repair task while
+`DependsOn` stays successful-only. Admission checks ownership and settlement;
+dispatch checks the admitted parent specification. No whole-family discovery is
+granted, and previous selected evidence survives retirement as historical evidence.
+
 A general process has one root role. Its selected permitted roles can delegate
 further tasks. Configured depth/task/revision/attempt bounds are admission policy,
 not a universal eight-card plan. The family shares one attempt allowance and
@@ -166,6 +174,16 @@ retry and compact result projections expose current diagnostics, while the exist
 results-file fallback removes duplicate inline text for large histories. SQLite
 schema 16 protects this retained evidence from older writers; existing rows remain
 unchanged. This does not recover diagnostics already removed by historical cleanup.
+
+Shared commands additionally retain their bounded stdout capture as an optional
+`ExecutionEnd.DiagnosticArtifact`. The content-addressed, attempt-owned regular
+file records size, SHA-256 and whether it reached the configured log/artifact bound.
+Core validates and registers it in the terminal transaction, including the failed
+result-persistence fallback; normal release keeps that exact file. Late output
+creates a new immutable identity instead of mutating an earlier checkpoint's log.
+Native model streams are excluded. Diagnostic artifacts use normal scoped result
+access and never grant product acceptance. Schema 17 protects both this fact and
+explicit result inputs without rewriting old table rows.
 
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting

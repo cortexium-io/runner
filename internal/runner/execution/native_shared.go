@@ -323,6 +323,7 @@ func sharedCommandFinal(a runner.Assignment, runErr error, diagnostic []byte) []
 
 func sharedCommandEvents(a runner.Assignment, events harnessEvents, runErr error, diagnostic []byte) harnessEvents {
 	events.Final = sharedCommandFinal(a, runErr, diagnostic)
+	events.commandLog = diagnostic
 	zero := int64(0)
 	events.Usage = runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero}
 	return events

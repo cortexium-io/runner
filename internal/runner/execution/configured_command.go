@@ -26,10 +26,11 @@ type commandJob struct {
 	End           *runner.ExecutionEnd `json:"end,omitempty"`
 }
 type commandResult struct {
-	AttemptID  string `json:"attempt_id"`
-	Kind       string `json:"kind"`
-	ExitCode   int    `json:"exit_code"`
-	Diagnostic string `json:"diagnostic,omitempty"`
+	AttemptID          string                     `json:"attempt_id"`
+	Kind               string                     `json:"kind"`
+	ExitCode           int                        `json:"exit_code"`
+	Diagnostic         string                     `json:"diagnostic,omitempty"`
+	DiagnosticArtifact *runner.DiagnosticArtifact `json:"diagnostic_artifact,omitempty"`
 }
 
 // Commands shares the core/workspace lifecycle. Its small Go worker secures the
@@ -535,6 +536,9 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 
 func collectCommandResult(d *runner.Disk, assignment runner.Assignment, result commandResult, scratch string) (*runner.ExecutionEnd, error) {
 	end, err := collectCommandOutput(d, assignment, result, scratch)
+	if end != nil {
+		end.DiagnosticArtifact = runner.Clone(result.DiagnosticArtifact)
+	}
 	if end != nil && end.Kind != "returned" {
 		end.Diagnostic = runner.DiagnosticTail(result.Diagnostic)
 	}

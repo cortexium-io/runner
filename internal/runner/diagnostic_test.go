@@ -1,11 +1,61 @@
 package runner
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestFinishAuthenticatesDiagnosticArtifactWithoutAcceptingProduct(t *testing.T) {
+	disk, err := OpenDisk(t.TempDir(), DefaultStorage())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("build passed; browser failed")
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	proof := DiagnosticArtifact{ID: "attempt/command-" + hash + ".log", Bytes: int64(len(data)), SHA256: hash}
+	if err := disk.Write("artifacts/"+proof.ID, data, disk.Policy.MaxArtifact); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"valid", "foreign", "hash", "size"} {
+		t.Run(mode, func(t *testing.T) {
+			p := proof
+			if mode == "foreign" {
+				p.ID = "other/command-" + hash + ".log"
+			}
+			if mode == "hash" {
+				p.SHA256 = strings.Repeat("0", 64)
+			}
+			if mode == "size" {
+				p.Bytes++
+			}
+			r := Run{
+				ID:      "run",
+				Status:  "Running",
+				Process: Process{MaxAttempts: 1, Steps: []Step{{ID: "check", Role: "checker"}}},
+				Roles:   map[string]Role{"checker": {ID: "checker", Execution: &Profile{Harness: "deterministic"}}},
+				Attempts: []Attempt{{
+					ID:    "attempt",
+					State: Finished,
+					End:   &ExecutionEnd{Kind: "stopped", Reason: "deadline", DiagnosticArtifact: &p},
+				}},
+			}
+			c := &Core{disk: disk, runs: map[string]Run{r.ID: r}}
+			arts := c.finish(&r, 0)
+			valid := mode == "valid"
+			wantArtifacts := 0
+			if valid {
+				wantArtifacts = 1
+			}
+			if (r.Attempts[0].End.DiagnosticArtifact != nil) != valid || len(arts) != wantArtifacts || r.Attempts[0].End.Kind != "stopped" || len(r.Outputs) != 0 {
+				t.Fatal("diagnostic identity altered terminal authority", mode)
+			}
+		})
+	}
+}
 
 func TestDiagnosticTailKeepsLatestUTF8WithinJSONBudget(t *testing.T) {
 	for _, text := range []string{

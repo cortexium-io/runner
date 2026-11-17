@@ -23,13 +23,14 @@ type TaskPolicy struct {
 }
 
 type RoleTask struct {
-	ID         string           `json:"id"`
-	Role       string           `json:"role"`
-	Brief      string           `json:"brief"`
-	Inputs     map[string]Value `json:"inputs,omitempty"`
-	Acceptance []string         `json:"acceptance,omitempty"`
-	DependsOn  []string         `json:"depends_on,omitempty"`
-	WritePaths []string         `json:"write_paths,omitempty"`
+	ID           string           `json:"id"`
+	Role         string           `json:"role"`
+	Brief        string           `json:"brief"`
+	Inputs       map[string]Value `json:"inputs,omitempty"`
+	Acceptance   []string         `json:"acceptance,omitempty"`
+	DependsOn    []string         `json:"depends_on,omitempty"`
+	ResultInputs []TaskResultRef  `json:"result_inputs,omitempty"`
+	WritePaths   []string         `json:"write_paths,omitempty"`
 }
 
 // TaskAction is an explicit domain result, not a command or permission grant.
@@ -51,17 +52,18 @@ type RoleTaskLink struct {
 }
 
 type RoleTaskResult struct {
-	ID         string           `json:"id"`
-	RunID      string           `json:"run_id"`
-	Role       string           `json:"role"`
-	Status     string           `json:"status"`
-	Reason     string           `json:"reason,omitempty"`
-	Diagnostic string           `json:"diagnostic,omitempty"`
-	Outputs    map[string]Value `json:"outputs,omitempty"`
+	ID                 string              `json:"id"`
+	RunID              string              `json:"run_id"`
+	Role               string              `json:"role"`
+	Status             string              `json:"status"`
+	Reason             string              `json:"reason,omitempty"`
+	Diagnostic         string              `json:"diagnostic,omitempty"`
+	DiagnosticArtifact *DiagnosticArtifact `json:"diagnostic_artifact,omitempty"`
+	Outputs            map[string]Value    `json:"outputs,omitempty"`
 }
 
-// TaskResultRef retains identity only. The child run owns its accepted outputs
-// and status; task contexts resolve those canonical records when dispatched.
+// TaskResultRef retains identity only. The producer owns its terminal status
+// and outputs; task contexts resolve those canonical records when dispatched.
 type TaskResultRef struct {
 	ID    string `json:"id"`
 	RunID string `json:"run_id"`
@@ -78,6 +80,7 @@ type TaskGraphState struct {
 	Brief           string                   `json:"brief"`
 	Acceptance      []string                 `json:"acceptance,omitempty"`
 	DependsOn       []string                 `json:"depends_on,omitempty"`
+	ResultInputs    []TaskResultRef          `json:"result_inputs,omitempty"`
 	WritePaths      []string                 `json:"write_paths,omitempty"`
 	Children        []RoleTaskLink           `json:"children,omitempty"`
 	Results         []TaskResultRef          `json:"results,omitempty"`

@@ -4,6 +4,21 @@ Runner owns the configured delivery process. An external chat owns understanding
 the user's intent, submitting authorized work and reporting results or decisions.
 It must not become a second worker or scheduler when something fails.
 
+Role tasks can select exact `result_inputs: [{id, run_id}]` from results supplied
+to their delegating parent. These deliver the producer's canonical terminal status,
+declared outputs and optional bounded command diagnostic artifact to a repair or
+assessment task. They do not turn failed work into a successful prerequisite:
+`depends_on` still requires Completed. Selection grants no discovery of unrelated
+siblings, projects or private Runner state. Omit the field when no result context
+is needed.
+
+Configured shared commands retain bounded stdout history independently of their
+domain result. `diagnostic_artifact` records its exact attempt-owned ID, SHA-256,
+byte count and whether it reached the configured log bound. It remains available
+after cleanup/restart through normal result-artifact access. A stopped command
+still has no accepted product output; diagnostic history never establishes a
+passing check. Native-model streams are not retained by this mechanism.
+
 ## Follow-up on an accepted general task
 
 Use normal `runner_run` or `runner_start` with optional

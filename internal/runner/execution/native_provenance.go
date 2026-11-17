@@ -98,6 +98,7 @@ type harnessEvents struct {
 	Failed           string
 	Terminal         bool
 	ExecutionEndedAt time.Time
+	commandLog       []byte
 }
 
 func (e *harnessEvents) available(name string) {

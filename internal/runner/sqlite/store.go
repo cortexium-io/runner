@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 16 {
+	if version < 0 || version > 17 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -256,6 +256,14 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		// Settled command diagnostics are retained attempt evidence. Older
 		// writers would silently discard the additive JSON field on save.
 		if _, e = db.Exec("PRAGMA user_version=16"); e != nil {
+			return nil, e
+		}
+		version = 16
+	}
+	if version == 16 {
+		// Explicit result inputs and command diagnostic artifacts must survive
+		// old readers without being silently discarded on their next write.
+		if _, e = db.Exec("PRAGMA user_version=17"); e != nil {
 			return nil, e
 		}
 	}
@@ -446,6 +454,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 		refs[r.SourceHandoff.Proof.ID] = true
 	}
 	for _, a := range r.Attempts {
+		if a.End != nil && a.End.DiagnosticArtifact != nil {
+			refs[a.End.DiagnosticArtifact.ID] = true
+		}
 		if a.State == runner.Finished && a.Effective != nil && a.Effective.Provenance != "" {
 			var exists int
 			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM artifacts WHERE id=? AND run_id=?", a.Effective.Provenance, r.ID).Scan(&exists); e != nil {

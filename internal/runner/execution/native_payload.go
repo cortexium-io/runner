@@ -24,6 +24,7 @@ Explain consequential decisions and evidence in the deliverable; do not disclose
 The sandbox covers the project workspace: write_paths are cooperative ownership claims, not per-file security isolation. Preserve other tasks' edits and stay within your assigned paths. Skills and tools follow the explicit native profile. MCP side effects are governed by the harness, not its shell filesystem sandbox.`
 
 const harnessTaskInstructions = `Use task_action=null when finished. Delegate or revise only through task_action; task inputs are [{name,kind,value}], with kind=text, json (JSON encoded as a string), or artifact (an ID already supplied by Runner). A control action has empty outputs.
+Select result_inputs [{id,run_id}] from your supplied Results when a delegated role needs an existing settled result, including a failed/stopped check and its diagnostic artifact. These are read-only evidence, not successful prerequisites. depends_on remains success-only. Do not copy failure reports into briefs or invent references.
 Task write_paths are literal paths relative to the product source, or "." for the whole project. Never use absolute paths or claim runtime/cache directories. Planning, writing without source edits, and read-only roles normally use []. Configured runtime permissions already exist and are not task write claims or permission requests.`
 
 func objectSchema(properties map[string]any) map[string]any {
@@ -177,13 +178,14 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 			"value": str,
 		})
 		task := objectSchema(map[string]any{
-			"id":          str,
-			"role":        str,
-			"brief":       str,
-			"inputs":      map[string]any{"type": "array", "items": binding},
-			"acceptance":  stringsArray,
-			"depends_on":  stringsArray,
-			"write_paths": stringsArray,
+			"id":            str,
+			"role":          str,
+			"brief":         str,
+			"inputs":        map[string]any{"type": "array", "items": binding},
+			"acceptance":    stringsArray,
+			"depends_on":    stringsArray,
+			"result_inputs": map[string]any{"type": "array", "items": objectSchema(map[string]any{"id": str, "run_id": str})},
+			"write_paths":   stringsArray,
 		})
 		action := objectSchema(map[string]any{
 			"kind":     map[string]any{"type": "string", "enum": []string{"delegate", "revise", "ask_human"}},
@@ -224,6 +226,9 @@ func harnessArtifactFiles(a runner.Assignment) map[string]string {
 	}
 	if a.TaskContext != nil {
 		for _, result := range a.TaskContext.Results {
+			if result.DiagnosticArtifact != nil {
+				add(runner.Value{ArtifactID: result.DiagnosticArtifact.ID})
+			}
 			for _, v := range result.Outputs {
 				add(v)
 			}
@@ -239,13 +244,14 @@ type harnessTaskInput struct {
 }
 
 type harnessTask struct {
-	ID         string             `json:"id"`
-	Role       string             `json:"role"`
-	Brief      string             `json:"brief"`
-	Inputs     []harnessTaskInput `json:"inputs"`
-	Acceptance []string           `json:"acceptance"`
-	DependsOn  []string           `json:"depends_on"`
-	WritePaths []string           `json:"write_paths"`
+	ID           string                 `json:"id"`
+	Role         string                 `json:"role"`
+	Brief        string                 `json:"brief"`
+	Inputs       []harnessTaskInput     `json:"inputs"`
+	Acceptance   []string               `json:"acceptance"`
+	DependsOn    []string               `json:"depends_on"`
+	ResultInputs []runner.TaskResultRef `json:"result_inputs"`
+	WritePaths   []string               `json:"write_paths"`
 }
 
 func nativeResultSizeReason(size int, limit runner.Bytes) string {
@@ -286,7 +292,7 @@ func harnessResult(a runner.Assignment, text []byte, work string, store func(str
 		}
 		action := &runner.TaskAction{Kind: wire.Action.Kind, Reason: wire.Action.Reason, Replace: wire.Action.Replace, Question: wire.Action.Question}
 		for _, t := range wire.Action.Tasks {
-			child := runner.RoleTask{ID: t.ID, Role: t.Role, Brief: t.Brief, Inputs: map[string]runner.Value{}, Acceptance: t.Acceptance, DependsOn: t.DependsOn, WritePaths: t.WritePaths}
+			child := runner.RoleTask{ID: t.ID, Role: t.Role, Brief: t.Brief, Inputs: map[string]runner.Value{}, Acceptance: t.Acceptance, DependsOn: t.DependsOn, ResultInputs: t.ResultInputs, WritePaths: t.WritePaths}
 			for _, v := range t.Inputs {
 				if _, exists := child.Inputs[v.Name]; exists {
 					return fail("duplicate delegated input")

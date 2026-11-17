@@ -106,6 +106,27 @@ func (c *Core) graphAction(r *Run, result *StepResult) error {
 		if _, exists := current[spec.ID]; exists {
 			return errors.New("task proposal duplicates a current child ID")
 		}
+		if len(spec.ResultInputs) > 0 {
+			available, err := c.graphResults(*r)
+			if err != nil {
+				return err
+			}
+			seen := map[string]bool{}
+			for _, ref := range spec.ResultInputs {
+				found := false
+				for _, result := range available {
+					producer := c.runs[result.RunID]
+					if ref.ID == result.ID && ref.RunID == result.RunID && producer.Terminal() && c.graphSubtreeSettled(producer) {
+						found = true
+						break
+					}
+				}
+				if !found || seen[ref.RunID] {
+					return errors.New("task result inputs require unique exact settled results already available to their parent")
+				}
+				seen[ref.RunID] = true
+			}
+		}
 		if err := ValidateValues(spec.Inputs, root.Roles[spec.Role].Inputs); err != nil {
 			return fmt.Errorf("task %s: %w", spec.ID, err)
 		}

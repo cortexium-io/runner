@@ -77,9 +77,21 @@ func recoverNativeOutput(spec harnessSpec, receipt *harnessReceipt) (bool, error
 			return false, errors.New("saved shared-command output identity differs")
 		}
 		log := &diagnosticTail{limit: int(spec.Assignment.Limits.MaxLog)}
-		_, _ = log.Write([]byte(result.Diagnostic))
+		if proof := result.DiagnosticArtifact; proof != nil {
+			data, err := os.ReadFile(filepath.Join(spec.Assignment.OutputDir, filepath.Base(proof.ID)))
+			if err != nil || !proof.Matches(spec.Assignment.AttemptID, data, spec.Assignment.Limits.MaxLog) {
+				return false, errors.New("saved configured-command diagnostic identity differs")
+			}
+			_, _ = log.Write(data)
+		} else {
+			_, _ = log.Write([]byte(result.Diagnostic))
+		}
 		_, _ = log.Write(tail)
 		result.Diagnostic = runner.DiagnosticTail(string(log.bytes()))
+		result.DiagnosticArtifact, err = writeCommandDiagnostic(spec.Assignment, log.bytes())
+		if err != nil {
+			return false, err
+		}
 		receipt.Final, err = json.Marshal(result)
 		if err != nil {
 			return false, err

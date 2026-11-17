@@ -166,11 +166,22 @@ func TestHarnessSharedOutputRecoveryPreservesExitAndBoundedDiagnostic(t *testing
 	defer read.Close()
 	defer write.Close()
 	before := time.Now().Add(-time.Second).UTC()
+	a := runner.Assignment{
+		AttemptID: "attempt",
+		OutputDir: t.TempDir(),
+		Limits:    runner.ExecutionLimits{MaxLog: 64, MaxArtifact: 1024},
+	}
+	original := []byte("saved before handoff\n")
+	proof, err := writeCommandDiagnostic(a, original)
+	if err != nil {
+		t.Fatal(err)
+	}
 	final, err := json.Marshal(commandResult{
-		AttemptID:  "attempt",
-		Kind:       "returned",
-		ExitCode:   7,
-		Diagnostic: "saved before handoff\n",
+		AttemptID:          "attempt",
+		Kind:               "returned",
+		ExitCode:           7,
+		Diagnostic:         "saved before handoff\n",
+		DiagnosticArtifact: proof,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +205,7 @@ func TestHarnessSharedOutputRecoveryPreservesExitAndBoundedDiagnostic(t *testing
 		Control:    control,
 		Shared:     true,
 		Output:     identity,
-		Assignment: runner.Assignment{Limits: runner.ExecutionLimits{MaxLog: 64}},
+		Assignment: a,
 	}
 	if closed, err := recoverNativeOutput(spec, &receipt); err != nil || !closed {
 		t.Fatal("shared output did not recover EOF", closed, err)
@@ -202,6 +213,14 @@ func TestHarnessSharedOutputRecoveryPreservesExitAndBoundedDiagnostic(t *testing
 	var result commandResult
 	if err := json.Unmarshal(receipt.Final, &result); err != nil || result.AttemptID != receipt.AttemptID || result.ExitCode != 7 || result.Kind != "returned" || result.Diagnostic != late[len(late)-64:] {
 		t.Fatal("recovery changed the command outcome or lost its bounded tail", result, err)
+	}
+	log, err := os.ReadFile(filepath.Join(a.OutputDir, filepath.Base(result.DiagnosticArtifact.ID)))
+	if err != nil || !result.DiagnosticArtifact.Matches(a.AttemptID, log, a.Limits.MaxLog) || !result.DiagnosticArtifact.AtLimit {
+		t.Fatal("recovered log has no exact bounded identity", err)
+	}
+	old, err := os.ReadFile(filepath.Join(a.OutputDir, filepath.Base(proof.ID)))
+	if err != nil || string(old) != string(original) {
+		t.Fatal("late output mutated an already referenced log", err)
 	}
 }
 

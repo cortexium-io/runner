@@ -7,6 +7,50 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Verification lifecycle correction, authorised 17 November 2026
+
+The same linked Sudoku root stopped at 98 executions. Preserving only the last
+480 diagnostic bytes fixed a lost-tail defect but cannot establish preceding
+stage costs. More fundamentally, a new repair task receives successful scheduling
+dependencies, not the failed result it is repairing. The project verifier also
+reuses frontend/build proof only after whole-run success, deletes its build after
+browser failure, exposes no smaller execution unit, and publishes its report only
+after the complete browser matrix. These contracts cause repeated expensive work
+and evidence loss; another unchanged full execution is not a qualification plan.
+
+Correct the existing lifecycle, without another scheduler or product logic in Core:
+
+1. Add explicit exact settled-result inputs to role tasks, using the existing
+   task/run reference. Authenticate selection against results already available
+   to the delegating parent, preserve the producer's outcome, and grant only its
+   declared artifacts and bounded executor diagnostics. Successful scheduling
+   dependencies remain successful-only. Preserve existing definitions and rows.
+2. Retain configured-command diagnostic history as a bounded attempt-owned
+   artifact independently of product outputs. Persist its identity before cleanup,
+   deliver it through the same result/artifact path, and preserve stop/failure
+   authority through restart, persistence rejection and output recovery. This
+   does not retain native-model transcripts or accept a stopped product archive.
+3. Clarify the existing project's future lead/author guidance through audited
+   owner steering, without changing frozen role/profile contracts. Runner's author
+   owns independently authenticated reusable stages,
+   partial/unrun evidence and execution-sized work through the existing fixed
+   checker. Passing frontend/build proof survives an unrelated browser failure;
+   reuse binds the actual relevant source, verifier, goal and runtime inputs.
+   The driver must reserve time for publication and cleanup before the unchanged
+   outer watchdog. Partial work never establishes whole-goal acceptance.
+4. Qualify the generic evidence flow with focused regressions and one model-free
+   end-to-end repair journey; independently review the complete change and use
+   exact-commit Code Atlas. Install only while execution is settled, preserving
+   all retained rows, source, previews and evidence. Then return the same root to
+   Runner once with this capability update. Runner owns project verifier repair,
+   focused qualification, current whole-goal closure and independent reviews.
+
+Keep existing models, access profiles, concurrency, timeouts and byte safeguards.
+The author does not acquire browser/server access outside the fixed checker.
+Do not resume the separate house-ad goal, waive release/native gates, merge or
+deploy. Finish at the accepted phone-accessible Sudoku preview; qualification
+must report the real maintenance intervention rather than call it uninterrupted.
+
 ### Project-owned verification and optional retained-run count, authorized 16 November 2026
 
 The owner's next fourteen Sudoku corrections expose the ownership error in the

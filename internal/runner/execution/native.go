@@ -580,6 +580,7 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 				var result commandResult
 				if json.Unmarshal(receipt.Final, &result) == nil && result.AttemptID == id && (result.Kind == "returned" || result.Kind == "stopped") {
 					job.End.Diagnostic = runner.DiagnosticTail(result.Diagnostic)
+					job.End.DiagnosticArtifact = runner.Clone(result.DiagnosticArtifact)
 				}
 			}
 		}
@@ -760,6 +761,9 @@ func (n *Native) Release(ctx context.Context, id string) error {
 			return err
 		}
 		keep := map[string]bool{"provenance.json": true}
+		if proof := job.End.DiagnosticArtifact; proof != nil && proof.ID == id+"/command-"+proof.SHA256+".log" {
+			keep[filepath.Base(proof.ID)] = true
+		}
 		if job.End.Result != nil {
 			for _, output := range job.End.Result.Outputs {
 				if filepath.Dir(output.ArtifactID) == id {

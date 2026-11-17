@@ -1319,15 +1319,24 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 				return
 			}
 			a.End = &ExecutionEnd{
-				Kind:       "failed",
-				Reason:     "result persistence rejected: " + Clip(e.Error()),
-				Diagnostic: a.End.Diagnostic,
+				Kind:               "failed",
+				Reason:             "result persistence rejected: " + Clip(e.Error()),
+				Diagnostic:         a.End.Diagnostic,
+				DiagnosticArtifact: Clone(a.End.DiagnosticArtifact),
 			}
 			r.Step = a.Step
 			r.Status = "Failed"
 			r.Reason = a.End.Reason
 			r.Outputs = nil
-			_ = c.persist(r, nil, nil)
+			var retained []Artifact
+			if proof := a.End.DiagnosticArtifact; proof != nil {
+				for _, artifact := range arts {
+					if artifact.ID == proof.ID {
+						retained = append(retained, artifact)
+					}
+				}
+			}
+			_ = c.persist(r, retained, nil)
 		}
 		c.Wake()
 	}()
@@ -1338,6 +1347,15 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	var arts []Artifact
 	end := a.End
 	diagnostic := DiagnosticTail(end.Diagnostic)
+	var diagnosticArtifact *DiagnosticArtifact
+	if proof := end.DiagnosticArtifact; proof != nil {
+		limit := min(c.disk.Policy.Logs.MaxPerAttempt, c.disk.Policy.MaxArtifact)
+		data, err := c.disk.Read("artifacts/"+proof.ID, limit)
+		if err == nil && proof.Matches(a.ID, data, limit) {
+			diagnosticArtifact = Clone(proof)
+			arts = append(arts, Artifact{ID: proof.ID, RunID: r.ID, ProjectID: r.ProjectID, Bytes: proof.Bytes})
+		}
+	}
 	if a.Effective != nil && a.Effective.Provenance != "" {
 		id := a.Effective.Provenance
 		if !strings.HasPrefix(id, a.ID+"/") {
@@ -1404,6 +1422,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	} else {
 		end.Diagnostic = ""
 	}
+	end.DiagnosticArtifact = diagnosticArtifact
 	a.End = end
 	if r.CancelRequested {
 		r.Status = "Cancelled"

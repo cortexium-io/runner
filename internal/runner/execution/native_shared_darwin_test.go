@@ -284,6 +284,13 @@ exec /bin/sleep 30`, "stopped-check", "{scratch}", ready},
 			if err := reopened.Release(t.Context(), a.AttemptID); err != nil || reopened.Owns(a.AttemptID) {
 				t.Fatal("same execution did not release safely", err)
 			}
+			if o.End.DiagnosticArtifact == nil {
+				t.Fatal("stopped command history was not retained")
+			}
+			log, err := d.Read("artifacts/"+o.End.DiagnosticArtifact.ID, a.Limits.MaxLog)
+			if err != nil || !o.End.DiagnosticArtifact.Matches(a.AttemptID, log, a.Limits.MaxLog) || !strings.Contains(string(log), "LATEST_DIAGNOSTIC") {
+				t.Fatal("released command history differs", err)
+			}
 		})
 	}
 }

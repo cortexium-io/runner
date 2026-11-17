@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 
 	"github.com/cortexium-io/runner/internal/runner"
@@ -110,6 +111,9 @@ func validateHarnessResults(a runner.Assignment, control string, file *runner.Na
 	// omitted from the compact, Core-authorized assignment.
 	allowed := harnessArtifactFiles(a)
 	for i, result := range results {
+		if !reflect.DeepEqual(result.DiagnosticArtifact, a.TaskContext.Results[i].DiagnosticArtifact) {
+			return errors.New("native task-results diagnostic artifact authority differs")
+		}
 		if result.Diagnostic != runner.DiagnosticTail(result.Diagnostic) || a.TaskContext.Results[i].Diagnostic != "" {
 			return errors.New("native task-results diagnostic bound or compact context differs")
 		}
