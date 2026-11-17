@@ -51,6 +51,26 @@ Do not resume the separate house-ad goal, waive release/native gates, merge or
 deploy. Finish at the accepted phone-accessible Sudoku preview; qualification
 must report the real maintenance intervention rather than call it uninterrupted.
 
+The generic correction is committed at
+`204b8b1cda8b3d40b19206c47bb5ecc0f4c52433`. Focused Core/executor/store
+race/vet checks and the complete model-free repository gate pass (execution
+package 1,029.974 seconds); independent review has no introduced P1/P2. Exact-base
+Code Atlas confirms the 29-file/25-function comparison, with no exact repeated
+test bodies. Its static/dynamic-call and scanner limitations remain recorded;
+it is not product acceptance.
+
+The qualified executable SHA-256 is
+`57aa0ac64a17e76e865900642931aa633269ee8d8db33e8de260864eedeec685`.
+Cold installation preserved all 177 runs, every existing table row and schema
+definition, the selected combined instance and LaunchAgent. Only the compatibility
+marker changed from 16 to 17. Normal owner steering resumed the same root from
+98 spent executions, with every pre-existing attempt row and frozen process,
+role, profile and input binding unchanged. The audited directive requires staged
+project verification; it changes no role access and does not recover historical
+lost logs. Canonical receipts and logs are `maintenance/verification-lifecycle-*`
+in the existing intake. Runner now owns product verifier correction and final
+closure; Sudoku and unattended delivery remain unaccepted until the real results.
+
 ### Project-owned verification and optional retained-run count, authorized 16 November 2026
 
 The owner's next fourteen Sudoku corrections expose the ownership error in the
