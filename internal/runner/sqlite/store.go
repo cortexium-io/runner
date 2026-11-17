@@ -492,12 +492,12 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 			refs[grant.Context.ID] = true
 		}
 	}
-	if r.TaskGraph != nil {
-		for _, grant := range r.TaskGraph.AllowanceGrants {
-			if grant.PreviousDefinition != nil {
-				refs[grant.PreviousDefinition.ID] = true
-			}
+	for _, grant := range runner.RoleDefinitionGrants(r) {
+		if grant.PreviousDefinition != nil {
+			refs[grant.PreviousDefinition.ID] = true
 		}
+	}
+	if r.TaskGraph != nil {
 		if lineage := r.TaskGraph.Lineage; lineage != nil {
 			refs[lineage.Source.PatchID], refs[lineage.CheckID] = true, true
 		}

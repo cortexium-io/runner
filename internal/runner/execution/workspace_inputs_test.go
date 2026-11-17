@@ -28,7 +28,7 @@ func TestReadOnlyReviewStagesOnlyTheSamePreparedOwnedSeed(t *testing.T) {
 				t.Fatal(err)
 			}
 			a.AttemptID, a.ProjectID, a.Source.Ref = "review_seed", "demo", r.Base
-			a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-read", Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
+			a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-read", Model: "gpt-6.2-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
 			a.Task, a.OutputTypes = "Independently review the retained seed", map[string]string{"verdict": "text", "summary": "text"}
 			a.Deadline = time.Now().Add(20 * time.Minute)
 			a = runner.Clone(a)
@@ -183,7 +183,7 @@ func TestWritableEvidenceInputsAreExplicitStagedCopiesAndCleanOnlyTheirAttempt(t
 	d := workspaceDisk(t)
 	w := &Workspaces{disk: d}
 	a := sourceAssignment(d, sourceRepository(t), "evidence_owner")
-	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write", Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
+	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write", Model: "gpt-6.2-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
 	a.Task, a.OutputTypes = "Use supplied evidence", map[string]string{"summary": "text", "patch": "artifact"}
 	a.Inputs = map[string]runner.Value{"baseline": {ArtifactID: "baseline/report"}}
 	data := []byte(`{"samples":[{"seed":1},{"seed":131},{"seed":3489660928}]}`)

@@ -44,7 +44,7 @@ func TestRetainedFrontendRepairKeepsStrictChecksAndProtectedDelivery(t *testing.
 	}
 	for _, id := range []string{"frontend-repair-owner", "frontend-repair-review"} {
 		role := project.Roles[id]
-		if role.Execution.Model != "gpt-6.1-sol" || role.Execution.Reasoning != "xhigh" || role.Execution.MaxInput != 8<<10 || role.Execution.MaxOutput != 512 {
+		if role.Execution.Model != "gpt-6.2-sol" || role.Execution.Reasoning != "xhigh" || role.Execution.MaxInput != 8<<10 || role.Execution.MaxOutput != 512 {
 			t.Fatal("model bounds changed", id)
 		}
 	}

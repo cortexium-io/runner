@@ -40,7 +40,7 @@ func TestSourceLegacyColdPinProtocolAndPermissionsWithoutModelTurn(t *testing.T)
 	c := NewCodex(disk, &runner.CodexSettings{Binary: binary, AuthFile: filepath.Join(home, ".codex", "auth.json"), StorageLimit: 32 << 20, GoBinary: goBinary, GoModuleCache: moduleCache, ReadOnlyPaths: []string{"go.mod"}})
 	c.workspaces = &Workspaces{disk: disk}
 	a := sourceAssignment(disk, sourceRepository(t), "attempt_cold_pin")
-	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-read", Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8 << 10, MaxOutput: 512}
+	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-read", Model: "gpt-6.2-sol", Reasoning: "xhigh", MaxInput: 8 << 10, MaxOutput: 512}
 	w, err := c.workspaces.Prepare(t.Context(), a)
 	if err != nil {
 		t.Fatal(err)

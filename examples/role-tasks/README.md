@@ -66,7 +66,7 @@ coding roles read the configured Genny skill file directly. Use --genny-skill
 with an absolute path when its standard location differs, or --native-context
 native to deliberately inherit the full harness capabilities. The writing
 profiles are unchanged. Lead/planner reasoning is medium, coding/integration/
-repair reasoning high, all on gpt-6.1-sol. runtime.json records the exact selected
+repair reasoning high, all on gpt-6.2-sol. runtime.json records the exact selected
 profiles; native provenance records actual exposure, usage and timing.
 
 The product description contains the fixed acceptance once. Each role receives

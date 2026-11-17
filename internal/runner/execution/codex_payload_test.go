@@ -15,7 +15,7 @@ func deadlinePayloadAssignment() runner.Assignment {
 		Setup: runner.ExecutionSetup{Profile: runner.Profile{
 			Harness:   "codex",
 			Access:    "workspace-write",
-			Model:     "gpt-6.1-sol",
+			Model:     "gpt-6.2-sol",
 			Reasoning: "xhigh",
 			MaxInput:  4096,
 			MaxOutput: 512,

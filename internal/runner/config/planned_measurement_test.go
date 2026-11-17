@@ -43,7 +43,7 @@ func TestPlannedInvestigationRetainsFirstMeasurementWithoutChangingAuthority(t *
 			}
 			for _, step := range []runner.Step{*owner, *review} {
 				profile := project.Roles[step.Role].Execution
-				if profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || profile.Model != "gpt-6.1-sol" || profile.Reasoning != "xhigh" {
+				if profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || profile.Model != "gpt-6.2-sol" || profile.Reasoning != "xhigh" {
 					t.Fatal("measurement retention increased model budgets")
 				}
 			}

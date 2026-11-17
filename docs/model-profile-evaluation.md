@@ -1,5 +1,28 @@
 # Model and role evaluation
 
+## Current model selection
+
+On 17 November 2026 the owner requested replacing GPT-6 Astra with
+`gpt-6.2-astra` and GPT-6.1 Sol with `gpt-6.2-sol`. Current examples and future
+opt-in native qualification fixtures select the new IDs, preserving reasoning,
+permissions, timeouts and allowances. The local Codex catalog lists both IDs and
+`xhigh`; this is capability evidence, not a live quality or cost evaluation.
+Historical execution records and qualification results below retain their actual
+model IDs. Strict delivery-profile validation accepts both Sol IDs so retained
+definitions remain loadable.
+
+Changing configured role files affects new runs only. A retained run stores its
+resolved profiles. The owner-only `amend-roles --role-models-file models.json` control accepts a
+nonempty JSON map of existing default model-role IDs to new model IDs. Choose
+either model changes or instruction changes per request. It requires an exact
+public revision, reason and stable request ID, plus a fully settled paused/failed
+general root or failed fixed-process root. It preserves the complete prior
+definition and actual historical child/attempt records. Future visits, including
+retained children, use the root’s explicit audited selection. This control does
+not resume work, change reasoning/access/allowances or approve release; never
+edit SQLite or relabel old proof. Runtime/config installation
+must wait for the owning session's settled maintenance handoff.
+
 The shipped execution adapter owns role instructions and structured results.
 Normal Go tests validate deterministic contracts without calling a model.
 A live evaluation is an explicit, paid Codex invocation, using the selected model
@@ -8,7 +31,7 @@ and reasoning; it is not part of routine packaging.
 From the checkout, choose one existing suite and a new private evidence directory:
 
 ```sh
-sh scripts/test-agent-behavior.sh ready gpt-6.1-sol high /absolute/evidence/ready
+sh scripts/test-agent-behavior.sh ready gpt-6.2-sol high /absolute/evidence/ready
 ```
 
 | Suite | Behavioral boundary |

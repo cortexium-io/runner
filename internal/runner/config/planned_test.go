@@ -91,7 +91,7 @@ func TestPlannedExamplesKeepCombinedProofAndProtectedDelivery(t *testing.T) {
 					t.Fatal("combined plan evidence was not an explicit artifact", id)
 				}
 				profile := project.Roles[step.Role].Execution
-				if profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || profile.Model != "gpt-6.1-sol" || profile.Reasoning != "xhigh" {
+				if profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || profile.Model != "gpt-6.2-sol" || profile.Reasoning != "xhigh" {
 					t.Fatal("coding/review model limits changed", id)
 				}
 			}

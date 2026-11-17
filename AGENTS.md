@@ -2,6 +2,17 @@
 
 ## Current authority and scope
 
+On 17 November Dan explicitly requested replacing GPT-6 Astra with GPT-6.2
+Astra and GPT-6.1 Sol with GPT-6.2 Sol everywhere. Update current configured
+selections, examples and future native qualifications, preserving unspecified
+native defaults, past actual execution models and all prior evidence. The
+existing authenticated role-amendment path may support an exclusive model-only
+amendment for future retained work, preserving exact prior definitions,
+instructions, reasoning, permissions, allowances and release decisions. Qualify
+model-free and cut over only at an owning session's genuinely settled handoff;
+do not interrupt active work or edit SQLite. Coordinate Sudoku amendments and
+recovery with its owner. No model turn is needed merely to probe availability.
+
 On 16 November Dan also approved, through the existing Jack's Break owner chat,
 "Yes, fix the intake and continue" for an ordinary frontend owner-reference
 intake and the authorised Pocket Hideout house-ad request. The owner then asked

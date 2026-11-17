@@ -57,7 +57,7 @@ func TestCodexConfigurationIsExplicitAndBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := s.Projects["demo"].Roles["summary"].Execution
-	if p.Model != "gpt-6.1-sol" || p.Reasoning != "xhigh" || p.Access != "input-only" || s.Instance.Codex.StorageLimit != 16<<20 {
+	if p.Model != "gpt-6.2-sol" || p.Reasoning != "xhigh" || p.Access != "input-only" || s.Instance.Codex.StorageLimit != 16<<20 {
 		t.Fatal("selected native setup was not resolved")
 	}
 	path := filepath.Join(dir, "projects/demo/roles/summary.yaml")
@@ -296,7 +296,7 @@ func TestWorkspaceConfiguration(t *testing.T) {
 		{"exclusive command ownership", "instance.yaml", "concurrency", 2},
 		{"explicit toolchain", "instance.yaml", "codex.go_binary", ""},
 		{"protected source paths", "instance.yaml", "codex.read_only_paths", []string{"../private"}},
-		{"check has no model", "projects/seats/roles/check.yaml", "execution.model", "gpt-6.1-sol"},
+		{"check has no model", "projects/seats/roles/check.yaml", "execution.model", "gpt-6.2-sol"},
 		{"source result is declared", "projects/seats/roles/implement.yaml", "outputs.patch", "text"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -457,7 +457,7 @@ execution:
 		{"no implicit shell", "execution.command.args", []string{"true"}},
 		{"no source escape", "execution.command.directory", "../other"},
 		{"no artifact escape", "execution.command.artifact", "../other"},
-		{"no model", "execution.model", "gpt-6.1-sol"},
+		{"no model", "execution.model", "gpt-6.2-sol"},
 		{"read only source", "execution.access", "workspace-write"},
 		{"artifact contract", "execution.command.artifact", "bundle.tgz"},
 		{"environment names", "execution.command.env", map[string]string{"INVALID=NAME": "x"}},
@@ -495,7 +495,7 @@ outputs: {check: text}
 execution:
   harness: codex
   access: workspace-read
-  model: gpt-6.1-sol
+  model: gpt-6.2-sol
   reasoning: xhigh
   max_input: 8KiB
   max_output: 2KiB

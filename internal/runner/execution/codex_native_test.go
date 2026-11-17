@@ -150,7 +150,7 @@ func TestNativeCodexQualification(t *testing.T) {
 				t.Fatalf("case submitted %d native turns", calls.Load()-before)
 			}
 			a := done.Attempts[0]
-			if a.NativeHandle == "" || a.Effective == nil || a.Effective.Model != "gpt-6.1-sol" || a.Effective.Reasoning != "xhigh" {
+			if a.NativeHandle == "" || a.Effective == nil || a.Effective.Model != "gpt-6.2-sol" || a.Effective.Reasoning != "xhigh" {
 				t.Fatal("native execution identity/effective settings missing")
 			}
 			if name == "lost acknowledgement and reconnect" && lose.Load() {

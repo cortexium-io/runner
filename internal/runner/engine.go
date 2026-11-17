@@ -870,6 +870,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if e != nil {
 		return Assignment{}, e
 	}
+	if r.Roles[step.Role].Execution != nil && (p.Harness == "native" || p.Harness == "codex") {
+		p.Model = c.amendedVisitModel(r, a, step.Role, p.Model)
+	}
 	if p.Harness == "command" && p.Mode == "shared" && r.TaskGraph == nil &&
 		(p.Access != "workspace-read" || r.Source == nil || r.Repository == "" || c.snapshot.Instance.Concurrency != 1 || step.Inputs["patch"] != (Binding{FromCandidate: true})) {
 		return Assignment{}, errors.New("source-owned shared commands require read-only access and the current candidate patch")

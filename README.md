@@ -141,7 +141,7 @@ for measured time, usage and remaining limits.
 ## Input-only Codex example
 
 The [Codex configuration](examples/codex/instance.yaml) uses your existing local
-Codex account. It selects `gpt-6.1-sol`, `xhigh` reasoning and no task environment,
+Codex account. It selects `gpt-6.2-sol`, `xhigh` reasoning and no task environment,
 MCP servers or external tools. Model/reasoning and effective native restrictions
 are checked before a turn is submitted. There is no automatic model fallback.
 

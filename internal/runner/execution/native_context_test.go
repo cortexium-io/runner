@@ -117,7 +117,7 @@ func TestHarnessLeanContextInstalledCodex(t *testing.T) {
 	type size struct{ agents, questions, guidance, input int }
 	measurements := map[string]size{}
 	for _, mode := range []string{"legacy_flags", "runner_gate"} {
-		args := []string{"debug", "prompt-input", "-c", `model="gpt-6.1-sol"`}
+		args := []string{"debug", "prompt-input", "-c", `model="gpt-6.2-sol"`}
 		for _, override := range append(runner.Clone(facts.RunnerOverrides), facts.Overrides...) {
 			if mode == "legacy_flags" && (override == "agents.enabled=false" || override == "tools.experimental_request_user_input.enabled=false") {
 				continue

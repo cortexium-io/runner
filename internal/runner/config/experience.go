@@ -14,7 +14,7 @@ func validateExperienceSuffix(p runner.Process, project runner.Project, publicat
 	}
 	qualify, export, review, gate := p.Steps[publication+1], p.Steps[publication+2], p.Steps[publication+3], p.Steps[publication+4]
 	profile := taskProfile(project, review)
-	if profile.Harness != "codex" || profile.Mode != "experience-review" || profile.Access != "workspace-read" || profile.Model != "gpt-6.1-sol" || profile.Reasoning != "xhigh" || profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || review.Reuse || review.ForEach != nil || review.Escalation != nil ||
+	if profile.Harness != "codex" || profile.Mode != "experience-review" || profile.Access != "workspace-read" || (profile.Model != "gpt-6.1-sol" && profile.Model != "gpt-6.2-sol") || profile.Reasoning != "xhigh" || profile.MaxInput != 8<<10 || profile.MaxOutput != 512 || review.Reuse || review.ForEach != nil || review.Escalation != nil ||
 		!reflect.DeepEqual(project.Roles[review.Role].Outputs, map[string]string{"verdict": "text", "summary": "text"}) ||
 		!reflect.DeepEqual(review.Inputs, map[string]runner.Binding{
 			"request":         {FromInput: "request"},

@@ -35,14 +35,14 @@ func TestTaskRoleAmendmentOwnerSchemaHasNoExecutionOrAllowanceOverrides(t *testi
 		if err != nil || json.Unmarshal(data, &schema) != nil {
 			t.Fatal("role amendment schema could not be read", err)
 		}
-		want := []string{"reason", "request_id", "revision", "role_instructions", "run_id"}
+		want := []string{"reason", "request_id", "revision", "role_instructions", "role_models", "run_id"}
 		var properties []string
 		for key := range schema.Properties {
 			properties = append(properties, key)
 		}
 		slices.Sort(properties)
 		slices.Sort(schema.Required)
-		if !reflect.DeepEqual(properties, want) || !reflect.DeepEqual(schema.Required, want) || schema.AdditionalProperties {
+		if !reflect.DeepEqual(properties, want) || !reflect.DeepEqual(schema.Required, []string{"reason", "request_id", "revision", "run_id"}) || schema.AdditionalProperties {
 			t.Fatal("role-only schema permits overrides or lacks exact authority", string(data))
 		}
 		return

@@ -1,6 +1,6 @@
 // Synthetic accepted-parent/configuration data. No product source or worker.
 export function parentFixture(root,binary) {
-  const execution=access=>({harness:'native',access,model:'gpt-6.1-sol',reasoning:'high',max_input:65536,max_output:8192,instructions:'Historical accepted instructions.',
+  const execution=access=>({harness:'native',access,model:'gpt-6.2-sol',reasoning:'high',max_input:65536,max_output:8192,instructions:'Historical accepted instructions.',
     native:{harness:'codex',binary,context:'lean',tools:{mode:'native'},skills:{mode:'none'},runtime_write_paths:[root+'/cache']}});
   const parent={id:'run_accepted',revision:7,status:'Completed',resources_released:true,project_id:'sudoku-preview',repository:root+'/source',
     task_graph:{root_run_id:'run_accepted'},attempts:[{id:'attempt_lead',state:'finished',released:true}],

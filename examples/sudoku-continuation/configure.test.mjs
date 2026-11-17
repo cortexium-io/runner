@@ -133,7 +133,7 @@ test('setup exposes bounded adaptive roles and authenticated dependency file bin
     assert.notEqual(role.execution.harness, 'release');
     if (role.execution.harness === 'native') {
       assert.deepEqual(role.outputs, {report: 'text'});
-      assert.equal(role.execution.model, 'gpt-6.1-sol');
+      assert.equal(role.execution.model, 'gpt-6.2-sol');
       assert.equal(role.execution.native.context, 'lean');
       assert.equal(role.execution.native.skills.mode, 'none');
       if (role.id !== 'sudoku-lead') {

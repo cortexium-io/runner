@@ -149,7 +149,7 @@ func retainedInvestigationOwner(p runner.Process, project runner.Project, public
 	}
 	for _, i := range []int{5, 8} {
 		q := profiles[i]
-		if q.Harness != "codex" || q.MaxInput != 8<<10 || q.MaxOutput != 512 || q.Model != "gpt-6.1-sol" || q.Reasoning != "xhigh" {
+		if q.Harness != "codex" || q.MaxInput != 8<<10 || q.MaxOutput != 512 || (q.Model != "gpt-6.1-sol" && q.Model != "gpt-6.2-sol") || q.Reasoning != "xhigh" {
 			return 0, bad
 		}
 	}

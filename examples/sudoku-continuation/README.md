@@ -143,7 +143,7 @@ owns complete goal acceptance and the UX role owns visual assessment. Valid
 unchanged proof is reused without treating browser or visual gaps as automatic
 source defects. All current-source acceptance requirements still apply.
 
-All model roles use `gpt-6.1-sol`, lean context, native built-in tools and
+All model roles use `gpt-6.2-sol`, lean context, native built-in tools and
 `skills:none`; lead reasoning is medium and developer/source/visual reasoning is
 high. The visual reviewer reads its three fixed skills directly and personally
 views the retained full viewport captures in owned scratch, then removes its

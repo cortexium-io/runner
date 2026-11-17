@@ -13,15 +13,9 @@ import (
 )
 
 func (s *Store) guardTaskAllowanceSave(ctx context.Context, tx *sql.Tx, after, before runner.Run, definition []byte, artifacts []runner.Artifact, receipt *runner.Receipt) error {
-	var oldGrants, newGrants []runner.TaskAllowanceGrant
-	if before.TaskGraph != nil {
-		oldGrants = before.TaskGraph.AllowanceGrants
-	}
-	if after.TaskGraph != nil {
-		newGrants = after.TaskGraph.AllowanceGrants
-	}
-	var family []runner.Run
-	if !reflect.DeepEqual(oldGrants, newGrants) && before.TaskGraph != nil {
+	oldGrants, newGrants := runner.RoleDefinitionGrants(before), runner.RoleDefinitionGrants(after)
+	family := []runner.Run{before}
+	if !reflect.DeepEqual(oldGrants, newGrants) && (before.TaskGraph != nil || len(before.TaskGroups) != 0) {
 		var err error
 		family, err = s.loadTaskAllowanceFamily(ctx, tx, before)
 		if err != nil {
@@ -72,6 +66,12 @@ func (s *Store) loadTaskAllowanceFamily(ctx context.Context, tx *sql.Tx, root ru
 			return nil, err
 		}
 		var header struct {
+			ID   string `json:"id"`
+			Task *struct {
+				Identity struct {
+					RootRunID string `json:"root_run_id"`
+				} `json:"identity"`
+			} `json:"task"`
 			TaskGraph *struct {
 				RootRunID string `json:"root_run_id"`
 			} `json:"task_graph"`
@@ -79,7 +79,7 @@ func (s *Store) loadTaskAllowanceFamily(ctx context.Context, tx *sql.Tx, root ru
 		if err = json.Unmarshal(item.data, &header); err != nil {
 			return nil, err
 		}
-		if header.TaskGraph != nil && header.TaskGraph.RootRunID == root.ID {
+		if header.TaskGraph != nil && header.TaskGraph.RootRunID == root.ID || root.TaskGraph == nil && (header.ID == root.ID || header.Task != nil && header.Task.Identity.RootRunID == root.ID) {
 			selected = append(selected, item)
 		}
 	}

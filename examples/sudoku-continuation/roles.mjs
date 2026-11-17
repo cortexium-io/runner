@@ -15,7 +15,7 @@ export function roleDefinitions(runtime) {
     outputs: {report: 'text'},
     execution: {
       harness: 'native',
-      model: 'gpt-6.1-sol',
+      model: 'gpt-6.2-sol',
       reasoning,
       access,
       max_input: '64KiB',

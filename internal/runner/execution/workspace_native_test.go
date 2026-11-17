@@ -37,7 +37,7 @@ func (p *writableQualificationPeer) Call(ctx context.Context, method string, arg
 		if e != nil {
 			return errors.New("qualification already dispatched or receipt cannot be secured: " + e.Error())
 		}
-		b, _ := json.Marshal(map[string]any{"model": "gpt-6.1-sol", "reasoning": "xhigh", "requested_at": time.Now().UTC()})
+		b, _ := json.Marshal(map[string]any{"model": "gpt-6.2-sol", "reasoning": "xhigh", "requested_at": time.Now().UTC()})
 		_, e = receipt.Write(b)
 		if e == nil {
 			e = receipt.Sync()
@@ -146,7 +146,7 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 		},
 		Setup: runner.ExecutionSetup{Profile: runner.Profile{
 			Harness:   "codex",
-			Model:     "gpt-6.1-sol",
+			Model:     "gpt-6.2-sol",
 			Reasoning: "xhigh",
 			Access:    "workspace-write",
 			MaxInput:  4096,
@@ -270,7 +270,7 @@ func TestNativeReviewPreflight(t *testing.T) {
 		} `json:"activePermissionProfile"`
 	}
 	if err := peer.Call(ctx, "thread/start", map[string]any{
-		"model": "gpt-6.1-sol", "approvalPolicy": "never", "permissions": "runner-check",
+		"model": "gpt-6.2-sol", "approvalPolicy": "never", "permissions": "runner-check",
 		"cwd": filepath.Join(root, "source"), "runtimeWorkspaceRoots": []string{filepath.Join(root, "source")},
 		"environments": []any{map[string]any{"environmentId": "local", "cwd": filepath.Join(root, "source"), "runtimeWorkspaceRoots": []string{filepath.Join(root, "source")}}},
 		"historyMode":  "legacy", "config": map[string]any{"model_reasoning_effort": "xhigh", "features.shell_tool": true},
@@ -350,7 +350,7 @@ func qualifyCoordinatorTools(t *testing.T, ctx context.Context, root, binary, ho
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	if err := peer.Call(ctx, "thread/start", map[string]any{"model": "gpt-6.1-sol", "approvalPolicy": "never", "sandbox": "read-only", "cwd": filepath.Dir(home) + "/empty", "environments": []any{}, "runtimeWorkspaceRoots": []any{}, "historyMode": "legacy"}, &thread); err != nil {
+	if err := peer.Call(ctx, "thread/start", map[string]any{"model": "gpt-6.2-sol", "approvalPolicy": "never", "sandbox": "read-only", "cwd": filepath.Dir(home) + "/empty", "environments": []any{}, "runtimeWorkspaceRoots": []any{}, "historyMode": "legacy"}, &thread); err != nil {
 		t.Fatal(err)
 	}
 	defer peer.Call(context.Background(), "thread/delete", map[string]string{"threadId": thread.Thread.ID}, nil)
@@ -484,7 +484,7 @@ func TestNativeWritableQualification(t *testing.T) {
 		Roots []string `json:"runtimeWorkspaceRoots"`
 	}
 	if e = readyPeer.Call(ctx, "thread/start", map[string]any{
-		"model":                 "gpt-6.1-sol",
+		"model":                 "gpt-6.2-sol",
 		"approvalPolicy":        "never",
 		"permissions":           "runner-input",
 		"cwd":                   filepath.Join(rig.disk.Root, "native", "empty"),

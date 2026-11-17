@@ -10,20 +10,21 @@ import (
 	"time"
 )
 
-// TaskRoleAmendmentRequest changes only future native instruction text. It
-// grants no execution, profile, scope claim, allowance or acceptance approval.
+// TaskRoleAmendmentRequest changes either future native instructions or default
+// model selections. It grants no execution, access, allowance or approval.
 type TaskRoleAmendmentRequest struct {
 	RequestID        string            `json:"request_id"`
 	RunID            string            `json:"run_id"`
 	Revision         int64             `json:"revision"`
 	Reason           string            `json:"reason"`
-	RoleInstructions map[string]string `json:"role_instructions"`
+	RoleInstructions map[string]string `json:"role_instructions,omitempty"`
+	RoleModels       map[string]string `json:"role_models,omitempty"`
 }
 
 const taskRoleAmendmentReceipt = "task_role_amendment"
 
 func roleOnlyAmendment(grant TaskAllowanceGrant) bool {
-	return grant.Limit == grant.PreviousLimit && len(grant.InstructionChanges) != 0 && grant.PreviousDefinition != nil && grant.PreviousMaxTasks == 0 && grant.MaxTasks == 0
+	return grant.Limit == grant.PreviousLimit && (len(grant.InstructionChanges) != 0 || len(grant.ModelChanges) != 0) && grant.PreviousDefinition != nil && grant.PreviousMaxTasks == 0 && grant.MaxTasks == 0
 }
 
 func taskRoleAmendmentRequest(receipt Receipt) (TaskRoleAmendmentRequest, error) {
@@ -34,15 +35,31 @@ func taskRoleAmendmentRequest(receipt Receipt) (TaskRoleAmendmentRequest, error)
 		return req, errors.New("invalid owner role amendment receipt")
 	}
 	canonical, err := json.Marshal(req)
-	if err != nil || !bytes.Equal(canonical, receipt.Args) || req.RequestID != receipt.Key || req.RunID != receipt.RunID || len(req.RequestID) < 1 || len(req.RequestID) > 128 || req.Revision < 1 || strings.TrimSpace(req.Reason) == "" || len(req.Reason) > 2048 || len(req.RoleInstructions) == 0 {
-		return req, errors.New("owner role amendment needs its exact request, revision, changed instructions and bounded reason")
+	if err != nil || !bytes.Equal(canonical, receipt.Args) || req.RequestID != receipt.Key || req.RunID != receipt.RunID || len(req.RequestID) < 1 || len(req.RequestID) > 128 || req.Revision < 1 || strings.TrimSpace(req.Reason) == "" || len(req.Reason) > 2048 || (len(req.RoleInstructions) == 0) == (len(req.RoleModels) == 0) {
+		return req, errors.New("owner role amendment needs its exact request, revision, exactly one instruction or model map and bounded reason")
 	}
 	return req, nil
 }
 
 func (c *Core) roleAmendmentFamily(r Run, revision int64) ([]Run, error) {
-	if r.TaskGraph == nil || r.ID != r.TaskGraph.RootRunID || r.TaskGraph.ParentRunID != "" || r.Status != "Waiting" || !r.TaskGraph.Paused || r.CancelRequested || r.Decision != nil || r.Step < 0 || r.Step >= len(r.Process.Steps) || revision < 1 {
-		return nil, errors.New("role amendment needs the exact paused nonterminal general root revision")
+	if r.TaskGraph == nil {
+		if r.Task != nil || r.Status != "Failed" || !r.ResourcesReleased || r.CancelRequested || r.Decision != nil || r.CleanupBlocked || r.CleanupError != "" || !c.graphOwnSettled(r) || revision < 1 || revision != c.outputRun(r).Revision || c.familyAttempts(r) == invalidFamilyAttempts {
+			return nil, errors.New("model amendment needs the exact settled failed fixed-process root revision")
+		}
+		family := []Run{r}
+		for _, group := range r.TaskGroups {
+			for _, link := range group.Children {
+				child, ok := c.runs[link.RunID]
+				if !ok || !child.Terminal() || !child.ResourcesReleased || child.CleanupBlocked || child.CleanupError != "" || !c.graphOwnSettled(child) {
+					return nil, errors.New("model amendment needs settled retained children")
+				}
+				family = append(family, child)
+			}
+		}
+		return family, nil
+	}
+	if r.ID != r.TaskGraph.RootRunID || r.TaskGraph.ParentRunID != "" || (r.Status != "Waiting" || !r.TaskGraph.Paused) && r.Status != "Failed" || r.CancelRequested || r.Decision != nil || r.Step < 0 || r.Step >= len(r.Process.Steps) || revision < 1 {
+		return nil, errors.New("role amendment needs the exact paused or failed settled general root revision")
 	}
 	_, family, reserved, err := c.graphFamily(r)
 	if err != nil || reserved != 0 {
@@ -73,14 +90,12 @@ func (c *Core) AmendTaskRoles(req TaskRoleAmendmentRequest) (Run, error) {
 		if err != nil {
 			return Run{}, err
 		}
-		if r.TaskGraph != nil {
-			for _, grant := range r.TaskGraph.AllowanceGrants {
-				if grant.RequestID == req.RequestID && roleOnlyAmendment(grant) {
-					if err := c.readTaskDefinitionProofs(r); err != nil {
-						return Run{}, err
-					}
-					return c.outputRun(r), nil
+		for _, grant := range RoleDefinitionGrants(r) {
+			if grant.RequestID == req.RequestID && roleOnlyAmendment(grant) {
+				if err := c.readTaskDefinitionProofs(r); err != nil {
+					return Run{}, err
 				}
+				return c.outputRun(r), nil
 			}
 		}
 		family, err := c.roleAmendmentFamily(r, req.Revision)
@@ -115,11 +130,11 @@ func (c *Core) AmendTaskRoles(req TaskRoleAmendmentRequest) (Run, error) {
 		Reason:        req.Reason,
 		GrantedAt:     time.Now().UTC(),
 	}
-	definition, err := applyTaskDefinitionAmendment(&after, RetryRequest{RoleInstructions: req.RoleInstructions}, &grant)
+	definition, err := applyRoleAmendment(&after, req, &grant)
 	if err != nil {
 		return Run{}, err
 	}
-	after.TaskGraph.AllowanceGrants = append(after.TaskGraph.AllowanceGrants, grant)
+	setRoleDefinitionGrants(&after, append(RoleDefinitionGrants(after), grant))
 	if err := admitRunRecord(after, c.disk.Policy.Database.MaxRecord); err != nil {
 		return Run{}, err
 	}
@@ -145,7 +160,8 @@ func validateTaskRoleAmendment(before, after Run, receipt Receipt, family []Run)
 		return err
 	}
 	bad := errors.New("role amendment must preserve paused work, authority and allowance with one authenticated definition proof")
-	if before.TaskGraph == nil || after.TaskGraph == nil || req.RunID != before.ID || len(after.TaskGraph.AllowanceGrants) != len(before.TaskGraph.AllowanceGrants)+1 || len(before.TaskGraph.AllowanceGrants) != 0 && !reflect.DeepEqual(before.TaskGraph.AllowanceGrants, after.TaskGraph.AllowanceGrants[:len(before.TaskGraph.AllowanceGrants)]) {
+	oldGrants, newGrants := RoleDefinitionGrants(before), RoleDefinitionGrants(after)
+	if req.RunID != before.ID || len(newGrants) != len(oldGrants)+1 || len(oldGrants) != 0 && !reflect.DeepEqual(oldGrants, newGrants[:len(oldGrants)]) {
 		return bad
 	}
 	view := &Core{runs: map[string]Run{}}
@@ -162,16 +178,16 @@ func validateTaskRoleAmendment(before, after Run, receipt Receipt, family []Run)
 	if err != nil || len(members) != len(family) {
 		return bad
 	}
-	grant := after.TaskGraph.AllowanceGrants[len(before.TaskGraph.AllowanceGrants)]
+	grant := newGrants[len(oldGrants)]
 	if !roleOnlyAmendment(grant) || grant.RequestID != req.RequestID || grant.PreviousLimit != before.Process.MaxAttempts || grant.Spent != view.familyAttempts(before) || grant.Reason != req.Reason || grant.GrantedAt.IsZero() || after.Revision != before.Revision+1 || after.Updated.Before(grant.GrantedAt) {
 		return bad
 	}
 	expected, expectedGrant := Clone(before), grant
-	expectedGrant.PreviousDefinition, expectedGrant.InstructionChanges = nil, nil
-	if _, err := applyTaskDefinitionAmendment(&expected, RetryRequest{RoleInstructions: req.RoleInstructions}, &expectedGrant); err != nil || !reflect.DeepEqual(expectedGrant, grant) {
+	expectedGrant.PreviousDefinition, expectedGrant.InstructionChanges, expectedGrant.ModelChanges = nil, nil, nil
+	if _, err := applyRoleAmendment(&expected, req, &expectedGrant); err != nil || !reflect.DeepEqual(expectedGrant, grant) {
 		return bad
 	}
-	expected.TaskGraph.AllowanceGrants = Clone(after.TaskGraph.AllowanceGrants)
+	setRoleDefinitionGrants(&expected, Clone(newGrants))
 	expected.Revision, expected.Updated = after.Revision, after.Updated
 	if !reflect.DeepEqual(expected, after) {
 		return bad

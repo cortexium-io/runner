@@ -8,7 +8,7 @@ import (
 
 func TestNativeRoleConfiguration(t *testing.T) {
 	base := runner.Profile{
-		Harness: "native", Access: "workspace-write", Model: "gpt-6.1-sol",
+		Harness: "native", Access: "workspace-write", Model: "gpt-6.2-sol",
 		Reasoning: "high", MaxInput: 32 << 10, MaxOutput: 8 << 10,
 		Native: &runner.NativeProfile{
 			Harness: "codex", Tools: runner.CapabilitySelection{Mode: "native"},

@@ -104,6 +104,7 @@ func run(ctx context.Context, args []string) error {
 	text := fs.String("text", "", "task steering directive, human answer or replacement directive with a root retry grant")
 	taskIDs := fs.String("task-ids", "", "JSON array of current failed child IDs for same-generation maintenance recovery")
 	maintenanceReason := fs.String("reason", "", "owner reason for a root goal allowance grant or same-generation maintenance recovery")
+	roleModelsFile := fs.String("role-models-file", "", "bounded JSON map of existing role IDs to owner-selected future default models")
 	roleInstructionsFile := fs.String("role-instructions-file", "", "bounded JSON map of existing role IDs to owner-amended native instructions")
 	maxTasks := fs.Int("max-tasks", 0, "explicit amended root child-task ceiling with an owner allowance grant")
 	if e := fs.Parse(args[1:]); e != nil {
@@ -195,15 +196,28 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("--reason requires recover-tasks, retry or amend-roles")
 	}
 	if command == "amend-roles" {
-		allowed := map[string]bool{"data": true, "endpoint": true, "run": true, "revision": true, "request-id": true, "reason": true, "role-instructions-file": true}
+		allowed := map[string]bool{"data": true, "endpoint": true, "run": true, "revision": true, "request-id": true, "reason": true, "role-instructions-file": true, "role-models-file": true}
 		bad := false
 		fs.Visit(func(f *flag.Flag) { bad = bad || !allowed[f.Name] })
-		if bad || *runID == "" || *revision < 1 || *maintenanceReason == "" || *roleInstructionsFile == "" {
-			return errors.New("amend-roles requires --run, exact --revision, --reason and --role-instructions-file; no profile, access, allowance or dispatch override")
+		if bad || *runID == "" || *revision < 1 || *maintenanceReason == "" || (*roleInstructionsFile == "") == (*roleModelsFile == "") {
+			return errors.New("amend-roles requires --run, exact --revision, --reason and exactly one of --role-instructions-file or --role-models-file; no profile, access, allowance or dispatch override")
 		}
 	}
 	if command != "amend-roles" && (*roleInstructionsFile != "" || *maxTasks != 0) && (command != "retry" || *runID == "" || *revision < 1 || *extra <= 0 || *withinBudget || *cleanupOnly) {
 		return errors.New("role instruction and task allowance amendments require retry with exact --run/--revision and positive --extra-attempts, without --within-budget or --cleanup-only")
+	}
+	var roleModels map[string]string
+	if *roleModelsFile != "" {
+		if command != "amend-roles" {
+			return errors.New("--role-models-file requires amend-roles")
+		}
+		data, err := readOwnerInput(*roleModelsFile, 40<<10, "role models")
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &roleModels); err != nil || len(roleModels) == 0 {
+			return errors.New("role models must be a nonempty JSON object mapping existing role IDs to model strings")
+		}
 	}
 	var roleInstructions map[string]string
 	if *roleInstructionsFile != "" {
@@ -347,6 +361,7 @@ func run(ctx context.Context, args []string) error {
 			Revision:         *revision,
 			Reason:           *maintenanceReason,
 			RoleInstructions: roleInstructions,
+			RoleModels:       roleModels,
 		}
 	case "recover-tasks":
 		var ids []string

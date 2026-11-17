@@ -428,7 +428,7 @@ func TestCardOwnerAdmissionUsesDispatchInputLimits(t *testing.T) {
 			owner.Purpose = "Implement the assigned card"
 			owner.Execution = &runner.Profile{
 				Harness: "codex", Mode: "owner", Access: "workspace-write",
-				Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512, Instructions: tc.instructions,
+				Model: "gpt-6.2-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512, Instructions: tc.instructions,
 			}
 			process := project.Processes["planned"]
 			process.Steps[0].ForEach.Steps[1].Inputs["request"] = runner.Binding{FromInput: "request"}

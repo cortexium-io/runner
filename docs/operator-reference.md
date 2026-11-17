@@ -183,7 +183,7 @@ policy. It does not change the existing restricted `harness: codex` adapter:
 ```yaml
 execution:
   harness: native
-  model: gpt-6.1-sol
+  model: gpt-6.2-sol
   reasoning: high
   access: workspace-write
   max_input: 64KiB

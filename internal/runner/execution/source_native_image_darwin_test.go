@@ -38,7 +38,7 @@ func TestSourceNativeImageProfileUsesExactReadRootsWithoutModelCall(t *testing.T
 	}
 	a.Inputs["image"] = runner.Value{ArtifactID: id}
 	a.Setup.Profile = runner.Profile{
-		Harness: "native", Model: "gpt-6.1-sol", Reasoning: "xhigh", Access: "workspace-read", MaxInput: 8 << 10, MaxOutput: 512,
+		Harness: "native", Model: "gpt-6.2-sol", Reasoning: "xhigh", Access: "workspace-read", MaxInput: 8 << 10, MaxOutput: 512,
 		Native: &runner.NativeProfile{Harness: "codex", Binary: binary, Context: "lean", Tools: runner.CapabilitySelection{Mode: "native"}, Skills: runner.CapabilitySelection{Mode: "none"}},
 	}
 	if err := a.Setup.Profile.Native.Validate(); err != nil {

@@ -32,7 +32,7 @@ func (p *imageQualificationPeer) Call(ctx context.Context, method string, args, 
 		if err != nil {
 			return err
 		}
-		data, _ := json.Marshal(map[string]any{"model": "gpt-6.1-sol", "reasoning": "xhigh", "images": 36, "requested": time.Now().UTC()})
+		data, _ := json.Marshal(map[string]any{"model": "gpt-6.2-sol", "reasoning": "xhigh", "images": 36, "requested": time.Now().UTC()})
 		_, err = f.Write(data)
 		if err == nil {
 			err = f.Sync()
@@ -81,7 +81,7 @@ func TestNativeExperienceImageReview(t *testing.T) {
 			Harness:      "codex",
 			Mode:         "experience-review",
 			Access:       "workspace-read",
-			Model:        "gpt-6.1-sol",
+			Model:        "gpt-6.2-sol",
 			Reasoning:    "xhigh",
 			MaxInput:     8 << 10,
 			MaxOutput:    512,

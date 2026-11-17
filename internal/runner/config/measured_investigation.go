@@ -85,7 +85,7 @@ func measuredInvestigationOwner(p runner.Process, project runner.Project, public
 		if i == 5 {
 			access = "workspace-write"
 		}
-		if q.Harness != "codex" || q.Access != access || q.MaxInput != 8<<10 || q.MaxOutput != 512 || q.Model != "gpt-6.1-sol" || q.Reasoning != "xhigh" {
+		if q.Harness != "codex" || q.Access != access || q.MaxInput != 8<<10 || q.MaxOutput != 512 || (q.Model != "gpt-6.1-sol" && q.Model != "gpt-6.2-sol") || q.Reasoning != "xhigh" {
 			return 0, bad
 		}
 	}

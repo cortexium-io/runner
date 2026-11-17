@@ -19,6 +19,7 @@ import (
 type TaskAllowanceGrant struct {
 	PreviousDefinition *CardRecoveryArtifact   `json:"previous_definition,omitempty"`
 	InstructionChanges []TaskInstructionChange `json:"instruction_changes,omitempty"`
+	ModelChanges       []TaskModelChange       `json:"model_changes,omitempty"`
 	PreviousMaxTasks   int                     `json:"previous_max_tasks,omitempty"`
 	MaxTasks           int                     `json:"max_tasks,omitempty"`
 	RequestID          string                  `json:"request_id"`
@@ -102,28 +103,36 @@ func taskAllowanceGrantReason(req RetryRequest) string {
 func taskAllowanceRecord(r Run) error {
 	g := r.TaskGraph
 	if g == nil {
-		return nil
+		for _, grant := range r.RoleAmendments {
+			if !roleOnlyAmendment(grant) || len(grant.InstructionChanges) != 0 {
+				return errors.New("fixed-process role amendments are model-only")
+			}
+		}
+	} else if len(r.RoleAmendments) != 0 {
+		return errors.New("general roots retain amendments in their existing owner grant chain")
 	}
-	if len(g.AllowanceGrants) != 0 && (g.RootRunID != r.ID || g.ParentRunID != "") {
+	grants := RoleDefinitionGrants(r)
+	if g != nil && len(grants) != 0 && (g.RootRunID != r.ID || g.ParentRunID != "") {
 		return errors.New("goal allowance grants belong only to the root")
 	}
 	limit := r.Process.MaxAttempts
-	if len(g.AllowanceGrants) != 0 {
-		limit = g.AllowanceGrants[0].PreviousLimit
+	if len(grants) != 0 {
+		limit = grants[0].PreviousLimit
 	}
-	if g.Lineage != nil && limit != g.Lineage.MaxAttempts {
+	if g != nil && g.Lineage != nil && limit != g.Lineage.MaxAttempts {
 		return errors.New("goal allowance grants differ from their original continuation ceiling")
 	}
 	seen := map[string]bool{}
 	roleHashes := map[string]string{}
+	roleModels := map[string]string{}
 	maxTasks := 0
 	spent := 0
 	var grantedAt time.Time
-	for _, grant := range g.AllowanceGrants {
+	for _, grant := range grants {
 		if grant.RequestID == "" || len(grant.RequestID) > 128 || seen[grant.RequestID] || grant.PreviousLimit != limit || limit < 1 || grant.Limit < limit || grant.Limit == limit && !roleOnlyAmendment(grant) || grant.Limit > MaxGeneralTaskAttempts || grant.Spent < spent || strings.TrimSpace(grant.Reason) == "" || len(grant.Reason) > 2048 || grant.GrantedAt.IsZero() || grant.GrantedAt.Before(grantedAt) {
 			return errors.New("invalid root goal allowance grant chain")
 		}
-		amended := len(grant.InstructionChanges) != 0 || grant.MaxTasks != 0
+		amended := len(grant.InstructionChanges) != 0 || len(grant.ModelChanges) != 0 || grant.MaxTasks != 0
 		if amended != (grant.PreviousDefinition != nil) || grant.MaxTasks == 0 && grant.PreviousMaxTasks != 0 {
 			return errors.New("definition amendment requires its previous definition proof")
 		}
@@ -138,6 +147,13 @@ func taskAllowanceRecord(r Run) error {
 				return errors.New("invalid task instruction amendment chain")
 			}
 			previousRole, roleHashes[change.RoleID] = change.RoleID, change.SHA256
+		}
+		previousRole = ""
+		for _, change := range grant.ModelChanges {
+			if change.RoleID <= previousRole || !validAmendedModel(change.PreviousModel) || !validAmendedModel(change.Model) || change.PreviousModel == change.Model || roleModels[change.RoleID] != "" && roleModels[change.RoleID] != change.PreviousModel || len(grant.InstructionChanges) != 0 {
+				return errors.New("invalid task model amendment chain")
+			}
+			previousRole, roleModels[change.RoleID] = change.RoleID, change.Model
 		}
 		if grant.MaxTasks != 0 {
 			if grant.PreviousMaxTasks < 1 || grant.MaxTasks <= grant.PreviousMaxTasks || grant.MaxTasks > 64 || maxTasks != 0 && maxTasks != grant.PreviousMaxTasks {
@@ -160,6 +176,12 @@ func taskAllowanceRecord(r Run) error {
 			return errors.New("current role instructions differ from their owner amendment")
 		}
 	}
+	for id, model := range roleModels {
+		role := r.Roles[id]
+		if role.Execution == nil || role.Execution.Model != model {
+			return errors.New("current role model differs from its owner amendment")
+		}
+	}
 	return nil
 }
 
@@ -167,15 +189,9 @@ func taskAllowanceRecord(r Run) error {
 // retry or role-amendment receipt in the same transaction. An ordinary save
 // cannot change the frozen definition, mint capacity or rewrite prior audits.
 func ValidateTaskAllowanceChange(before, after Run, receipt *Receipt, family []Run) error {
-	var oldGrants, newGrants []TaskAllowanceGrant
-	if before.TaskGraph != nil {
-		oldGrants = before.TaskGraph.AllowanceGrants
-	}
-	if after.TaskGraph != nil {
-		newGrants = after.TaskGraph.AllowanceGrants
-	}
+	oldGrants, newGrants := RoleDefinitionGrants(before), RoleDefinitionGrants(after)
 	if reflect.DeepEqual(oldGrants, newGrants) {
-		if before.TaskGraph != nil && (!reflect.DeepEqual(before.Process, after.Process) || !reflect.DeepEqual(before.Roles, after.Roles) || !reflect.DeepEqual(before.Profiles, after.Profiles)) {
+		if (before.TaskGraph != nil || len(oldGrants) != 0) && (!reflect.DeepEqual(before.Process, after.Process) || !reflect.DeepEqual(before.Roles, after.Roles) || !reflect.DeepEqual(before.Profiles, after.Profiles)) {
 			return errors.New("frozen task definition can change only with an audited owner grant")
 		}
 		return nil
@@ -221,7 +237,7 @@ func ValidateTaskAllowanceChange(before, after Run, receipt *Receipt, family []R
 	}
 	expected := Clone(before)
 	expectedGrant := grant
-	expectedGrant.PreviousDefinition, expectedGrant.InstructionChanges = nil, nil
+	expectedGrant.PreviousDefinition, expectedGrant.InstructionChanges, expectedGrant.ModelChanges = nil, nil, nil
 	expectedGrant.PreviousMaxTasks, expectedGrant.MaxTasks = 0, 0
 	if _, err := applyTaskDefinitionAmendment(&expected, req, &expectedGrant); err != nil || !reflect.DeepEqual(grant, expectedGrant) {
 		return bad
@@ -302,11 +318,8 @@ func (c *Core) writeTaskDefinitionProof(r Run, ref *CardRecoveryArtifact, proof 
 }
 
 func (c *Core) readTaskDefinitionProofs(r Run) error {
-	if r.TaskGraph == nil {
-		return nil
-	}
 	var expected *runDefinition
-	for _, grant := range r.TaskGraph.AllowanceGrants {
+	for _, grant := range RoleDefinitionGrants(r) {
 		ref := grant.PreviousDefinition
 		if ref == nil {
 			continue
@@ -331,6 +344,7 @@ func (c *Core) readTaskDefinitionProofs(r Run) error {
 		}
 		receipt, err := c.store.FindReceipt(c.ctx, grant.RequestID)
 		var req RetryRequest
+		var modelRequest TaskRoleAmendmentRequest
 		if err != nil || receipt.RunID != r.ID {
 			return errors.New("task definition amendment receipt differs or is missing")
 		}
@@ -340,17 +354,27 @@ func (c *Core) readTaskDefinitionProofs(r Run) error {
 				return errors.New("task role amendment receipt differs or is missing")
 			}
 			req.RoleInstructions = roleRequest.RoleInstructions
+			modelRequest = roleRequest
 		} else if receipt.Kind != "retry" || json.Unmarshal(receipt.Args, &req) != nil || req.RequestID != grant.RequestID || req.RunID != r.ID || req.Revision < 1 || req.ExtraAttempts != grant.Limit-grant.PreviousLimit || req.WithinBudget || req.CleanupOnly {
 			return errors.New("task definition amendment receipt differs or is missing")
 		}
 		prior := Run{
-			ID: r.ID, RecordFormat: 9, Process: definition.Process, Roles: definition.Roles, Profiles: definition.Profiles,
-			TaskGraph: &TaskGraphState{RootRunID: r.ID, TaskID: "root"},
+			ID: r.ID, RecordFormat: 3, Process: definition.Process, Roles: definition.Roles, Profiles: definition.Profiles,
+		}
+		if r.TaskGraph != nil {
+			prior.RecordFormat = 9
+			prior.TaskGraph = &TaskGraphState{RootRunID: r.ID, TaskID: "root"}
 		}
 		amended := grant
-		amended.PreviousDefinition, amended.InstructionChanges = nil, nil
+		amended.PreviousDefinition, amended.InstructionChanges, amended.ModelChanges = nil, nil, nil
 		amended.PreviousMaxTasks, amended.MaxTasks = 0, 0
-		if _, err := applyTaskDefinitionAmendment(&prior, req, &amended); err != nil || !reflect.DeepEqual(amended, grant) {
+		var applyErr error
+		if len(modelRequest.RoleModels) != 0 {
+			_, applyErr = applyRoleAmendment(&prior, modelRequest, &amended)
+		} else {
+			_, applyErr = applyTaskDefinitionAmendment(&prior, req, &amended)
+		}
+		if applyErr != nil || !reflect.DeepEqual(amended, grant) {
 			return errors.New("task definition amendment differs from its previous proof and owner receipt")
 		}
 		prior.Process.MaxAttempts = grant.Limit

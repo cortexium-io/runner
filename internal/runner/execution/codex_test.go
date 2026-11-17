@@ -106,7 +106,7 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		}
 	case "model/list":
 		result = map[string]any{"data": []any{map[string]any{
-			"id":                        "gpt-6.1-sol",
+			"id":                        "gpt-6.2-sol",
 			"supportedReasoningEfforts": []any{map[string]string{"reasoningEffort": "xhigh"}},
 		}}}
 	case "command/exec":
@@ -127,7 +127,7 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 			p.workspace = args["cwd"].(string)
 		}
 		p.thread = "native-thread"
-		model := "gpt-6.1-sol"
+		model := "gpt-6.2-sol"
 		if p.wrongModel {
 			model = "other-model"
 		}
@@ -226,7 +226,7 @@ func nativeSnapshot() runner.Snapshot {
 		Outputs: map[string]string{"summary": "text"},
 		Execution: &runner.Profile{
 			Harness:   "codex",
-			Model:     "gpt-6.1-sol",
+			Model:     "gpt-6.2-sol",
 			Reasoning: "xhigh",
 			Access:    "input-only",
 			MaxInput:  4096,
