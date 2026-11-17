@@ -69,6 +69,22 @@ qualification, installation and recovery receipts are
 this executable. Runner has resumed engine-bound product verification. Current
 whole-goal acceptance and the phone preview still require their real outcomes.
 
+The retained Sudoku goal subsequently completed at 139 spent executions. After
+the final 131-spent maintenance resume, Runner itself scheduled the fresh
+engine-bound check (all 59 cases, 814.304 seconds), matched unchanged recheck
+(59 reused, zero journeys, 28.748 seconds), current independent source and UX
+approvals, and accepted goal closure. Both reviews reconcile C01–C14; the source
+review resolves the engine-payload finding. All canonical check cleanup passes.
+The trusted operator launched the exact accepted stopped executable without
+migration, preserving the existing database inode and localhost origin. Localhost
+and private-LAN HTTP pass, including an independent request from Mega Mini.
+`delivery/operator.json` owns the intentionally retained preview and SSH forward;
+`maintenance/verification-lifecycle-completion.json` binds all acceptance and
+preservation receipts. Stop at Dan's phone inspection. Physical/native OS coverage
+and release authority remain outside this preview acceptance. The complete run
+required three maintenance handoffs; only its final eight-execution cycle was
+unattended after the final resume.
+
 The first corrected execution finished in 986.462 seconds with frontend/build/
 browser stages and C01–C14 reported passed, but its final admission probe rejected
 the producer's structured checker/runtime values against the existing string-map
