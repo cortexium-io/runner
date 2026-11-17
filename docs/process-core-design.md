@@ -370,6 +370,29 @@ Canonical qualification, installation and grant receipts are in the existing
 `pocket-hideout-recovery/second-recovery/` evidence directory. The bounded Core
 extension is tracked in [Runner issue 132](https://github.com/cortexium-io/runner/issues/132).
 
+The fifth correction passed 17 focused tests and repaired CSS package exports,
+but the authored verifier's real app build still failed seven imports/type/asset
+errors before any browser scenario. Dan approved a coherent verifier repair phase
+with three additional corrections, ceiling 8, preserving both earlier grants and
+all five spent uses. Source `e26b99722109` adds explicit positive `additional_uses`
+to current-route recovery; omitted requests retain historical one-use semantics.
+Overflow/mixed counts reject, linked audits/context/replay remain, and only the
+named eligible route receives the recorded ceiling. Model-free tests prove initial
+use 6, automatic corrections 7/8, stop at 8 and passing checks reaching protected
+delivery stages. Focused/full ordinary Core/SQLite/control/CLI race/vet passed,
+with independent review and exact Code Atlas comparison.
+
+Installation used a coordinated quiet window while the separate Sudoku goal was
+normally paused for its owner-selected Pocket Calculator directive. All 191 runs,
+every table fingerprint, schema 20, policy, current goal/claims/device directive,
+accepted preview processes and database inode were preserved. After the Sudoku
+owner resumed, one phase grant applied to the original ad root at public revision
+551: spending 5 became 6 under ceiling 8. Both prior grants and historical facts
+remain unchanged. Product build/browser/source/image/native/release checks remain
+inside Runner; no merge or production approval follows. Canonical evidence is in
+`pocket-hideout-recovery/verifier-repair-phase/`, tracked by
+[Runner issue 133](https://github.com/cortexium-io/runner/issues/133).
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed
