@@ -166,7 +166,7 @@ func TestEvidenceHandoffSpendsLastExistingPhaseUseAndRetainsFailures(t *testing.
 }
 
 func TestEvidenceHandoffRejectsChangedAuthorityAndEvidence(t *testing.T) {
-	cases := []string{"revision", "phase", "blocked", "source", "check", "check-sha", "patch-sha", "evidence-sha", "size", "foreign", "missing", "cancel", "active", "cleanup", "unreleased", "blocked-tree", "blocked-seed", "blocked-bytes", "outcome", "ceiling", "grant", "recipient", "producer", "check-source", "source-validation", "evidence-validation", "changed-during-validation", "changed-artifact-during-validation"}
+	cases := []string{"revision", "phase", "blocked", "source", "check", "check-sha", "patch-sha", "evidence-sha", "size", "foreign", "missing", "cancel", "active", "cleanup", "unreleased", "blocked-tree", "blocked-seed", "blocked-bytes", "outcome", "ceiling", "family-headroom", "completion-reserve", "grant", "recipient", "producer", "check-source", "source-validation", "evidence-validation", "changed-during-validation", "changed-artifact-during-validation"}
 	for _, mode := range cases {
 		t.Run(mode, func(t *testing.T) {
 			c, store, exec, before, req, _ := evidenceHandoffFixture(t)
@@ -216,6 +216,16 @@ func TestEvidenceHandoffRejectsChangedAuthorityAndEvidence(t *testing.T) {
 				r.Current().End.Result.Outcome = "ready"
 			case "ceiling":
 				r.RouteUses["check/changes_requested"] = 8
+			case "family-headroom":
+				c.snapshot.Instance.EnforceWorkLimits = true
+				r.Process.MaxAttempts = c.familyAttempts(r)
+			case "completion-reserve":
+				c.snapshot.Instance.EnforceWorkLimits = true
+				need, err := readyTail(r, r.Step)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Process.MaxAttempts = c.familyAttempts(r) + need - 1
 			case "grant":
 				r.CorrectionRecovery.RouteLimits["review/changes_requested"] = 8
 			case "recipient":

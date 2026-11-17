@@ -194,6 +194,11 @@ func (c *Core) evidenceHandoff(req RecoverEvidenceHandoffRequest) (Run, Attempt,
 	if c.workLimitsEnabled() && len(r.Attempts) >= r.Process.MaxAttempts {
 		return reject("original total attempt allowance is exhausted")
 	}
+	if c.workLimitsEnabled() {
+		if err := c.correctionBudgetReserve(r, r.Step); err != nil {
+			return reject("evidence handoff preserves completion reserve: " + err.Error())
+		}
+	}
 	// The final execution before the blocked owner must be its original rejection.
 	check := r.Attempts[len(r.Attempts)-2]
 	route, eligible := sourceCorrectionRoute(r, check.Step)
