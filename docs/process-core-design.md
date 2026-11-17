@@ -57,6 +57,18 @@ Earlier failed qualification logs remain retained; no recovery assertion, timeou
 permission or policy ceiling was relaxed. Installation and product closure still
 require their actual receipts below the existing intake's maintenance directory.
 
+The qualified source is `ed2aa54906397bda8b46aa30da82e9352a6e46e2`;
+exact-base Atlas inspected 36 files/43 functions with no exact duplicate test
+bodies. Cold installation preserved every existing table row and all 185 runs,
+adding only the empty relationship schema and version marker. The same root
+resumed at 131 spent with every prior attempt, task link, frozen binding and
+directive unchanged. Ordinary persistence reduced its operational record from
+20,274 to 5,354 bytes while retaining 63 complete relationships. Canonical
+qualification, installation and recovery receipts are
+`maintenance/history-normalization-*.json`; the active descriptor now identifies
+this executable. Runner has resumed engine-bound product verification. Current
+whole-goal acceptance and the phone preview still require their real outcomes.
+
 The first corrected execution finished in 986.462 seconds with frontend/build/
 browser stages and C01–C14 reported passed, but its final admission probe rejected
 the producer's structured checker/runtime values against the existing string-map
