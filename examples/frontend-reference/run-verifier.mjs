@@ -61,10 +61,11 @@ async function proofFiles(scratch,names) {
   return files;
 }
 
-function retainedFiles(manifest,files) {
+function retainedFiles(manifest,files,maxEntries=maxFiles+1) {
   const encoded=Buffer.from(JSON.stringify(manifest)+'\n');
   if(encoded.length>128<<10)throw new Error('Candidate verifier metadata exceeds its retained bound.');
   const all={'launcher.json':encoded,...files};
+  if(Object.keys(all).length>maxEntries||Object.values(all).some(bytes=>bytes.length>maxFile))throw new Error('Retained project evidence exceeds its entry bound.');
   // Retained result/diagnostic metadata and USTAR headers/padding are bounded
   // separately from the compressed artifact. Reserve one tar blocking record.
   const expanded=1024+10240+Object.values(all).reduce((total,bytes)=>total+512+Math.ceil(bytes.length/512)*512,0);
@@ -72,8 +73,8 @@ function retainedFiles(manifest,files) {
   return all;
 }
 
-async function retain(scratch,manifest,files) {
-  const all=retainedFiles(manifest,files);
+async function retain(scratch,manifest,files,maxEntries=maxFiles+1) {
+  const all=retainedFiles(manifest,files,maxEntries);
   const packed=path.join(scratch,'retained-proof');await mkdir(packed,{mode:0o700});
   for(const [name,bytes] of Object.entries(all))await writeFile(path.join(packed,name),bytes,{flag:'wx',mode:0o600});
   const archive=path.join(scratch,'project-evidence.tar.gz'),handle=await open(archive,'wx',0o600);await handle.close();
@@ -146,7 +147,7 @@ function projectArchive(bytes) {
   const manifest=JSON.parse(files['launcher.json']);
   if(manifest.version!==1||!['ready','changes_requested','blocked'].includes(manifest.status)||!manifest.files||Object.keys(files).length!==Object.keys(manifest.files).length+1)throw new Error('Project verification result is invalid.');
   for(const [name,entry] of Object.entries(manifest.files))if(!files[name]||entry.sha256!==sha(files[name])||entry.bytes!==files[name].length)throw new Error('Project proof changed after collection.');
-  return {manifest,images:Object.keys(manifest.files).filter(name=>name.endsWith('.png')).sort()};
+  return {manifest,files,images:Object.keys(manifest.files).filter(name=>name.endsWith('.png')).sort()};
 }
 
 function artifactIdentity(filename,bytes) {
@@ -155,13 +156,25 @@ function artifactIdentity(filename,bytes) {
   return {artifact_id:id,sha256:sha(bytes),bytes:bytes.length};
 }
 
-// Assemble only compact proof/judgment and original focused JSON. Images remain
-// canonical in the original project artifact, never duplicated into this package.
+// The producer artifact remains canonical. Exact admitted components also travel
+// in this operational input so restricted correction/review owners can read them.
 export async function assembleChecks(values) {
   const scratch=await realpath(absolute(values.scratch));
-  const files={};const manifest={version:1,kind:'frontend-checks',status:'blocked'};
+  const files={},projectComponents=[];const manifest={version:1,kind:'frontend-checks',status:'blocked'};
   const finish=async(outcome,message)=>{
-    manifest.status=outcome;await retain(scratch,manifest,files);
+    manifest.status=outcome;
+    try {retainedFiles(manifest,files,maxFiles);}catch(error) {
+      // Never publish a successful or silently trimmed handoff. Keep the
+      // canonical identity and a bounded diagnostic when the full copy cannot fit.
+      for(const name of projectComponents)delete files[name];
+      if(manifest.project) {
+        delete manifest.project.launcher_component;delete manifest.project.files;
+        manifest.project.images=manifest.project.images.map(({component,...image})=>image);
+        manifest.project.handoff='unavailable';
+      }
+      outcome='blocked';message=reason(error.message);manifest.status=outcome;manifest.error=message;
+    }
+    await retain(scratch,manifest,files,maxFiles);
     const domain={outcome,reason:reason(message)};
     await writeFile(path.join(scratch,'domain.json'),JSON.stringify(domain)+'\n',{flag:'wx',mode:0o600});return domain;
   };
@@ -175,10 +188,13 @@ export async function assembleChecks(values) {
       if(!['failed','blocked'].includes(focus.status))throw new Error('Focused result is invalid.');
       return {outcome:focus.status==='failed'?'changes_requested':'blocked',message:focus.reason||'Current focused checks did not pass.'};
     }
-    const project=await regular(absolute(values.project),maxArtifact),{manifest:proof,images}=projectArchive(project),projectIdentity=artifactIdentity(values.project,project);
+    const project=await regular(absolute(values.project),maxArtifact),{manifest:proof,files:proofFiles,images}=projectArchive(project),projectIdentity=artifactIdentity(values.project,project);
     if(proof.candidate?.patch_sha256!==patchSHA||proof.owner_reference?.sha256!==sha(reference)||proof.owner_reference?.request_sha256!==owner.request_sha256)throw new Error('Project candidate or owner identity differs.');
     manifest.verifier=proof.verifier;
-    manifest.project={...projectIdentity,patch_sha256:patchSHA,summary:{status:proof.status,reason:proof.project_result?.reason||proof.error||'',summary:proof.project_result?.summary||''},images:images.map(name=>({name,...proof.files[name]}))};
+    const components=Object.fromEntries(Object.keys(proof.files).sort().map((name,index)=>[name,{component:'project-proof-'+index+path.extname(name),sha256:proof.files[name].sha256,bytes:proof.files[name].bytes}]));
+    manifest.project={...projectIdentity,patch_sha256:patchSHA,summary:{status:proof.status,reason:proof.project_result?.reason||proof.error||'',summary:proof.project_result?.summary||''},launcher_component:'project-launcher.json',files:components,images:images.map(name=>({name,...components[name]}))};
+    files['project-launcher.json']=proofFiles['launcher.json'];projectComponents.push('project-launcher.json');
+    for(const [name,{component}] of Object.entries(components)) {files[component]=proofFiles[name];projectComponents.push(component);}
     if(proof.status!=='ready') {
       files['project-diagnostic.json']=Buffer.from(JSON.stringify({error:proof.error,execution:proof.execution,project_result:proof.project_result}));
       return {outcome:proof.status,message:proof.project_result?.reason||proof.error||'Current project verification did not pass.'};
