@@ -9,6 +9,32 @@ Merge, publication and production remain separately authorized actions.**
 
 ### Verification lifecycle correction, authorised 17 November 2026
 
+The first corrected execution finished in 986.462 seconds with frontend/build/
+browser stages and C01–C14 reported passed, but its final admission probe rejected
+the producer's structured checker/runtime values against the existing string-map
+wire contract. Runner itself reproduced and repaired that mismatch. It still
+deliberately marks all browser proof non-reusable, including after report-only
+changes, so the proportionate-verification requirement is not closed.
+
+Finish the same correction with these observable obligations: immutable, exact
+relevant-input proof for browser cases/phases; report-only changes execute no
+unchanged browser journeys; interrupted work retains completed proof and resumes
+only missing/invalid cases; product, goal, runtime or applicable assertion changes
+reject stale reuse; partial evidence cannot establish whole-goal acceptance.
+Runner authors and qualifies that project contract through its existing actors
+and fixed executor. Preserve all required coverage and current passing evidence.
+
+The retained root's operational state is also 19,034/20,480 bytes because result
+references repeat task IDs already retained in their child links. Normalize only
+that duplicate text on disk, restoring exact public references at decode from a
+unique RunID/child identity; preserve full legacy references and all canonical
+attempt/specification bytes. No new table, ledger, count cap or byte increase.
+Qualify public roundtrip, no caller mutation, old/retired references, malformed
+normalization, restart and the actual retained frontier's unchanged admission
+budget. The normal maintenance pause lets the current fixed check finish and
+clean up before installation; its results remain canonical. One audited guidance
+handoff then returns final verifier qualification, checks and reviews to Runner.
+
 The same linked Sudoku root stopped at 98 executions. Preserving only the last
 480 diagnostic bytes fixed a lost-tail defect but cannot establish preceding
 stage costs. More fundamentally, a new repair task receives successful scheduling

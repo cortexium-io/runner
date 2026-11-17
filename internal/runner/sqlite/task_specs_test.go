@@ -34,6 +34,12 @@ func TestTaskSpecificationsRestoreFromRetainedAttemptsBeforeChildrenExist(t *tes
 				Spec:  spec,
 				RunID: fmt.Sprintf("reserved-child-%d-%d", i, j),
 			})
+			// Result identity codec coverage; Core separately owns terminal-child
+			// admission. The canonical task ID is already retained in this link.
+			r.TaskGraph.Results = append(r.TaskGraph.Results, runner.TaskResultRef{
+				ID:    spec.ID,
+				RunID: fmt.Sprintf("reserved-child-%d-%d", i, j),
+			})
 		}
 		a.End.Result = &runner.StepResult{
 			Outcome:    "ready",
@@ -55,6 +61,17 @@ func TestTaskSpecificationsRestoreFromRetainedAttemptsBeforeChildrenExist(t *tes
 	}
 	if len(data) >= int(normalizedPolicy().Database.MaxRecord)/2 || strings.Contains(string(data), "Admitted specification retained once") {
 		t.Fatal("parent operational state still duplicates the full admitted specifications", len(data))
+	}
+	var encoded struct {
+		Graph struct {
+			Results []map[string]any `json:"results"`
+		} `json:"task_graph"`
+	}
+	if json.Unmarshal(data, &encoded) != nil || len(encoded.Graph.Results) != len(r.TaskGraph.Results) {
+		t.Fatal("stored result references lost")
+	}
+	if _, exists := encoded.Graph.Results[0]["id"]; exists {
+		t.Fatal("disk still duplicates the canonical child task ID")
 	}
 	history := allowanceAttemptBytes(t, s)
 	if err = s.Close(); err != nil {

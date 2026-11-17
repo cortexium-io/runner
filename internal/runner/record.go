@@ -17,6 +17,7 @@ type runRecord struct {
 	Roles        map[string]Role   `json:"roles,omitempty"`
 	Profiles     map[string]string `json:"profiles,omitempty"`
 	AttemptCount *int              `json:"attempt_count,omitempty"`
+	TaskGraph    *taskGraphRecord  `json:"task_graph,omitempty"`
 }
 
 // Settings and current operational state are separately bounded documents.
@@ -37,6 +38,13 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	}
 	if (r.RecordFormat == 9) != (r.TaskGraph != nil) {
 		return nil, nil, errors.New("general task state requires its version-nine record")
+	}
+	if g := r.TaskGraph; g != nil {
+		for _, ref := range g.Results {
+			if ref.ID == "" {
+				return nil, nil, errors.New("public task result identity must be complete before disk normalization")
+			}
+		}
 	}
 	if err := taskContinuationRecord(r); err != nil {
 		return nil, nil, err
@@ -66,7 +74,11 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 		graph.Brief = ""
 		r.TaskGraph = &graph
 	}
-	state, err = json.Marshal(runRecord{runAlias: runAlias(r), AttemptCount: count})
+	state, err = json.Marshal(runRecord{
+		runAlias:     runAlias(r),
+		AttemptCount: count,
+		TaskGraph:    compactTaskResultIDs(r.TaskGraph),
+	})
 	if err == nil {
 		definition, err = json.Marshal(runDefinition{r.Process, r.Roles, r.Profiles})
 	}
@@ -76,6 +88,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	var r Run
 	if err := json.Unmarshal(state, &r); err != nil {
+		return r, err
+	}
+	if err := restoreTaskResultIDs(r.TaskGraph); err != nil {
 		return r, err
 	}
 	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 && r.RecordFormat != 7 && r.RecordFormat != 8 && r.RecordFormat != 9 {

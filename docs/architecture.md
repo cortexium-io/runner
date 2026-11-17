@@ -185,6 +185,14 @@ Native model streams are excluded. Diagnostic artifacts use normal scoped result
 access and never grant product acceptance. Schema 17 protects both this fact and
 explicit result inputs without rewriting old table rows.
 
+Schema 19 additionally normalizes repeated result task IDs only in the private
+run-record representation. A unique retained child RunID already owns that ID;
+decode restores it before any public context or store guard uses the record.
+Retired child links keep their original identity, full legacy references remain
+readable, and explicit sibling result inputs are unchanged. Canonical attempts,
+specifications and definitions remain the owning proof. This removes duplicated
+operational text without raising the state-byte reserve or adding another table.
+
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
 existing rows. Schema six adds the native allocation/release compatibility boundary.

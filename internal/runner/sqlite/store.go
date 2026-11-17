@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 18 {
+	if version < 0 || version > 19 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -272,6 +272,14 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		// A finite current-route grant and its scoped context must not be
 		// silently dropped by older writers.
 		if _, e = db.Exec("PRAGMA user_version=18"); e != nil {
+			return nil, e
+		}
+		version = 18
+	}
+	if version == 18 {
+		// Disk-only result references derive omitted IDs from retained child
+		// links. Older writers cannot restore this normalized representation.
+		if _, e = db.Exec("PRAGMA user_version=19"); e != nil {
 			return nil, e
 		}
 	}
