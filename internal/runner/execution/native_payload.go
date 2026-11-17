@@ -118,17 +118,18 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 		}
 	}
 	request := struct {
-		WorkPolicy      string            `json:"work_policy,omitempty"`
-		Task            string            `json:"task,omitempty"`
-		TaskRef         string            `json:"task_ref,omitempty"`
-		Inputs          map[string]any    `json:"inputs"`
-		InputReferences map[string]string `json:"input_references,omitempty"`
-		Context         *taskContext      `json:"task_context,omitempty"`
-		MaxOutput       runner.Bytes      `json:"max_output_bytes"`
-		OutputDir       string            `json:"output_dir"`
-		ScratchDir      string            `json:"scratch_dir"`
-		Evidence        map[string]string `json:"evidence_files,omitempty"`
-		Instructions    string            `json:"instructions"`
+		RecoveryContext *recoveryContextReference `json:"recovery_context,omitempty"`
+		WorkPolicy      string                    `json:"work_policy,omitempty"`
+		Task            string                    `json:"task,omitempty"`
+		TaskRef         string                    `json:"task_ref,omitempty"`
+		Inputs          map[string]any            `json:"inputs"`
+		InputReferences map[string]string         `json:"input_references,omitempty"`
+		Context         *taskContext              `json:"task_context,omitempty"`
+		MaxOutput       runner.Bytes              `json:"max_output_bytes"`
+		OutputDir       string                    `json:"output_dir"`
+		ScratchDir      string                    `json:"scratch_dir"`
+		Evidence        map[string]string         `json:"evidence_files,omitempty"`
+		Instructions    string                    `json:"instructions"`
 	}{
 		Task:            task,
 		TaskRef:         taskRef,
@@ -140,6 +141,15 @@ func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (stri
 		ScratchDir:      scratch,
 		Evidence:        harnessArtifactFiles(a),
 		Instructions:    instructions + "\n" + p.Instructions + "\nWrite retained files into output_dir; artifact output paths are relative to output_dir. Use scratch_dir for temporary checks. Source access and read-only verification are enforced separately from these two writable roots.",
+	}
+	if proof := a.RecoveryContext; proof != nil {
+		request.RecoveryContext = &recoveryContextReference{
+			ArtifactID: proof.ID,
+			Path:       evidenceFiles[proof.ID],
+			Bytes:      proof.Bytes,
+			SHA256:     proof.SHA256,
+			Purpose:    recoveryContextPurpose,
+		}
 	}
 	if a.UnlimitedWork {
 		request.WorkPolicy = unlimitedWorkPolicy
@@ -223,6 +233,9 @@ func harnessArtifactFiles(a runner.Assignment) map[string]string {
 	}
 	for _, v := range a.Inputs {
 		add(v)
+	}
+	if a.RecoveryContext != nil {
+		add(runner.Value{ArtifactID: a.RecoveryContext.ID})
 	}
 	if a.TaskContext != nil {
 		for _, result := range a.TaskContext.Results {

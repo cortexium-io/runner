@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 17 {
+	if version < 0 || version > 18 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -264,6 +264,14 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		// Explicit result inputs and command diagnostic artifacts must survive
 		// old readers without being silently discarded on their next write.
 		if _, e = db.Exec("PRAGMA user_version=17"); e != nil {
+			return nil, e
+		}
+		version = 17
+	}
+	if version == 17 {
+		// A finite current-route grant and its scoped context must not be
+		// silently dropped by older writers.
+		if _, e = db.Exec("PRAGMA user_version=18"); e != nil {
 			return nil, e
 		}
 	}
@@ -437,6 +445,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	}
 	add(r.Inputs)
 	add(r.Outputs)
+	if r.CorrectionRecovery != nil && r.CorrectionRecovery.Context != nil {
+		refs[r.CorrectionRecovery.Context.ID] = true
+	}
 	if r.TaskGraph != nil {
 		for _, grant := range r.TaskGraph.AllowanceGrants {
 			if grant.PreviousDefinition != nil {

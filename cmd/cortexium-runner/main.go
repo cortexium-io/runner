@@ -85,6 +85,10 @@ func run(ctx context.Context, args []string) error {
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
 	withinBudget := fs.Bool("within-budget", false, "grant retry or source-correction allowance from the existing total attempt budget")
+	currentRoute := fs.Bool("current-route", false, "owner-authorized one additional use of only the exact exhausted source-correction route")
+	contextFile := fs.String("context-file", "", "bounded owner-supplied supplemental correction JSON")
+	contextSHA := fs.String("context-sha256", "", "exact SHA256 of supplemental correction JSON")
+	contextRoles := fs.String("context-roles", "", "JSON array of existing future source/review role recipients")
 	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
@@ -229,8 +233,11 @@ func run(ctx context.Context, args []string) error {
 	if *withinBudget && command != "recover-corrections" && (command != "retry" || *extra <= 0 || *cleanupOnly) {
 		return errors.New("--within-budget requires retry with positive --extra-attempts and without --cleanup-only")
 	}
-	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || !*withinBudget && *maxUses != 3 || *withinBudget && (*maxUses != 0 || *preserveSource) || *profile != "" || *extra != 0 || *cleanupOnly) {
-		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3 or --within-budget without --max-uses; retry allowances/profiles are separate")
+	if command != "recover-corrections" && (*currentRoute || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
+		return errors.New("current-route and correction context flags require recover-corrections")
+	}
+	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || !*withinBudget && !*currentRoute && *maxUses != 3 || *withinBudget && (*maxUses != 0 || *preserveSource || *currentRoute) || *currentRoute && (*revision < 1 || *maxUses < 1 || *patchSHA256 == "" || *checkSHA256 == "" || *preserveSource) || *profile != "" || *extra != 0 || *cleanupOnly) {
+		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3 or --within-budget without --max-uses; alternatively --current-route requires exact revision, patch/check SHA256 and one-use local ceiling")
 	}
 	if command == "recover-collection" && (*runID == "" || *attemptID == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-collection requires --run and --attempt; it grants no retry allowance, profile or preservation override")
@@ -400,6 +407,29 @@ func run(ctx context.Context, args []string) error {
 			Profile:   *profile,
 		}
 	case "recover-corrections":
+		if !*currentRoute && (*revision != 0 || *patchSHA256 != "" || *checkSHA256 != "" || *contextFile != "" || *contextSHA != "" || *contextRoles != "") {
+			return errors.New("exact correction bindings and context require --current-route")
+		}
+		var supplement *runner.CorrectionContextInput
+		if *contextFile != "" || *contextSHA != "" || *contextRoles != "" {
+			if *contextFile == "" || *contextSHA == "" || *contextRoles == "" {
+				return errors.New("correction context needs --context-file, --context-sha256 and --context-roles")
+			}
+			content, err := readOwnerInput(*contextFile, int64(runner.MaxCorrectionContext), "correction context")
+			if err != nil {
+				return err
+			}
+			var roles []string
+			if err := json.Unmarshal([]byte(*contextRoles), &roles); err != nil || len(roles) == 0 {
+				return errors.New("context roles must be a nonempty JSON array")
+			}
+			supplement = &runner.CorrectionContextInput{
+				Content: string(content),
+				Bytes:   int64(len(content)),
+				SHA256:  *contextSHA,
+				Roles:   roles,
+			}
+		}
 		if *requestID == "" {
 			*requestID = rand.Text()
 		}
@@ -412,6 +442,11 @@ func run(ctx context.Context, args []string) error {
 			MaxUses:        *maxUses,
 			WithinBudget:   *withinBudget,
 			PreserveSource: *preserveSource,
+			CurrentRoute:   *currentRoute,
+			Revision:       *revision,
+			PatchSHA256:    *patchSHA256,
+			CheckSHA256:    *checkSHA256,
+			Context:        supplement,
 		}
 	case "recover-collection":
 		if *requestID == "" {

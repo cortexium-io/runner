@@ -46,6 +46,21 @@ not approve the new goal. Publication/release authority does not transfer.
 
 ## Optional total-work limits
 
+An owner-authorized `recover-corrections --current-route` grant is independent of
+aggregate limits. Supply the exact run revision, saved rejection attempt,
+candidate/check SHA-256 and `--max-uses` equal to current route spending plus one.
+Only that exhausted source-correction backedge gains one use; original counters,
+definitions, other retries and protected approvals remain unchanged. Reuse its
+request ID after uncertain responses. It cannot combine with `--within-budget`
+or source preservation.
+
+When approved, `--context-file`, `--context-sha256` and `--context-roles` supply one
+bounded supplemental JSON artifact to explicit future source/review actors. This
+does not replace original inputs or make the context a candidate approval. The
+CLI accepts a regular file up to 16 KiB; Core binds its exact bytes, hash and role
+recipients. Context reaches legacy Codex through protected staged inputs and
+native actors through normal artifact access, with no host-directory grant.
+
 Aggregate attempt and total task-count enforcement is opt-in instance policy:
 `enforce_work_limits` defaults to false. The setting applies to every configured
 project and retained run; frozen numeric ceilings and spending remain recorded.

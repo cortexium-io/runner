@@ -359,6 +359,9 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 			job.Workspace, job.Directory = &w, w.WorkDir
 		}
 	}
+	if _, err := recoveryContextData(n.disk, *a); err != nil {
+		return err
+	}
 	for id, target := range harnessArtifactFiles(*a) {
 		size, err := n.disk.ArtifactSize(id)
 		if err != nil {

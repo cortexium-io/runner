@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -71,6 +73,61 @@ func TestRecoverCorrectionsCLIUsesExactSavedAttemptAndTotalLimit(t *testing.T) {
 				}
 			}
 		}
+	}
+	content := []byte(`{"policy":"Use explicit labels","runtime":"RUNNER_PROJECT_FRONTEND_MODULES"}`)
+	contextPath := filepath.Join(t.TempDir(), "context.json")
+	if err := os.WriteFile(contextPath, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	want = runner.RecoverCorrectionsRequest{
+		RequestID:    "approved-single-current-route",
+		RunID:        "saved-run",
+		AttemptID:    "saved-source-check",
+		CurrentRoute: true,
+		Revision:     407,
+		MaxUses:      4,
+		PatchSHA256:  strings.Repeat("a", 64),
+		CheckSHA256:  strings.Repeat("b", 64),
+		Context: &runner.CorrectionContextInput{
+			Content: string(content),
+			Bytes:   int64(len(content)),
+			SHA256:  fmt.Sprintf("%x", sha256.Sum256(content)),
+			Roles:   []string{"owner", "review"},
+		},
+	}
+	args := []string{
+		"recover-corrections",
+		"--data",
+		data,
+		"--endpoint",
+		server.URL,
+		"--run",
+		want.RunID,
+		"--attempt",
+		want.AttemptID,
+		"--request-id",
+		want.RequestID,
+		"--current-route",
+		"--revision",
+		"407",
+		"--max-uses",
+		"4",
+		"--patch-sha256",
+		want.PatchSHA256,
+		"--check-sha256",
+		want.CheckSHA256,
+		"--context-file",
+		contextPath,
+		"--context-sha256",
+		want.Context.SHA256,
+		"--context-roles",
+		`["owner","review"]`,
+	}
+	if err := run(t.Context(), args); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-requests; !reflect.DeepEqual(got, want) {
+		t.Fatal("exact current-route/context request changed", got)
 	}
 }
 

@@ -183,6 +183,26 @@ Static analysis does not establish product or unattended-delivery acceptance.
 
 ### Ordinary frontend references and project-owned verification, authorised 16 November 2026
 
+On 17 November the owner approved one bounded continuation of the retained
+Pocket Hideout house-ad goal after its three source-correction uses were spent.
+Extend the existing `RecoverCorrections` operation with `current_route`: exact
+failed run revision, rejection attempt, candidate/check SHA-256 and a finite local
+ceiling equal to existing spending plus one. Only the currently exhausted eligible
+backedge receives the override. Preserve the original definition, three consumed
+uses, all attempts/source/evidence, aggregate policy and every protected approval.
+The legacy three-use and enforced-budget modes remain separate and unchanged.
+
+The same owner action can retain one bounded supplemental JSON document as a
+hash/size-bound root-owned artifact with explicit existing source/review role
+recipients. Original intake/reference bytes and role definitions stay immutable.
+Only future visits receive this separate read-only context: legacy Codex uses its
+protected input subtree; native reviewers use the existing exact artifact grant.
+Do not grant host paths or install product packages. Qualify rejection of changed
+bindings/context, active cleanup, duplicate grants, persistence uncertainty and
+the exact fourth-use stop before one operator grant. Product verification repair
+and fresh source/image checks remain inside Runner; merge/production authority
+does not follow from this maintenance.
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed

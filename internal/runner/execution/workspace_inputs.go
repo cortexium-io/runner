@@ -121,6 +121,16 @@ func (c *Codex) verifyReviewSeed(j nativeJob, patchID string) error {
 
 func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte, error) {
 	files := map[string][]byte{}
+	if proof := a.RecoveryContext; proof != nil {
+		if _, collision := a.Inputs["recovery-context.json"]; collision {
+			return nil, errors.New("supplemental context conflicts with a declared input name")
+		}
+		data, err := recoveryContextData(disk, a)
+		if err != nil {
+			return nil, err
+		}
+		files["recovery-context.json"] = data
+	}
 	if a.Setup.Profile.Harness == "codex" {
 		_, _, inline, err := nativePayloadPlan(a, time.Time{})
 		if err != nil {

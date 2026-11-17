@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -11,12 +10,17 @@ import (
 )
 
 type RecoverCorrectionsRequest struct {
-	RequestID      string `json:"request_id"`
-	RunID          string `json:"run_id"`
-	AttemptID      string `json:"attempt_id"`
-	MaxUses        int    `json:"max_uses"`
-	PreserveSource bool   `json:"preserve_source,omitempty"`
-	WithinBudget   bool   `json:"within_budget,omitempty"`
+	RequestID      string                  `json:"request_id"`
+	RunID          string                  `json:"run_id"`
+	AttemptID      string                  `json:"attempt_id"`
+	MaxUses        int                     `json:"max_uses"`
+	PreserveSource bool                    `json:"preserve_source,omitempty"`
+	WithinBudget   bool                    `json:"within_budget,omitempty"`
+	CurrentRoute   bool                    `json:"current_route,omitempty"`
+	Revision       int64                   `json:"revision,omitempty"`
+	PatchSHA256    string                  `json:"patch_sha256,omitempty"`
+	CheckSHA256    string                  `json:"check_sha256,omitempty"`
+	Context        *CorrectionContextInput `json:"context,omitempty"`
 }
 
 // CorrectionRecovery is a single owner-authorized operational escalation. The
@@ -34,6 +38,16 @@ type CorrectionRecovery struct {
 	Preservation      *SourcePreservationReceipt `json:"preservation,omitempty"`
 	WithinBudget      bool                       `json:"within_budget,omitempty"`
 	RemainingAttempts int                        `json:"remaining_attempts,omitempty"`
+	CurrentRoute      bool                       `json:"current_route,omitempty"`
+	Revision          int64                      `json:"revision,omitempty"`
+	Route             string                     `json:"route,omitempty"`
+	PreviousUses      int                        `json:"previous_uses,omitempty"`
+	PatchSHA256       string                     `json:"patch_sha256,omitempty"`
+	CheckID           string                     `json:"check_id,omitempty"`
+	CheckSHA256       string                     `json:"check_sha256,omitempty"`
+	DefinitionSHA256  string                     `json:"definition_sha256,omitempty"`
+	Context           *CorrectionContext         `json:"context,omitempty"`
+	FromVisit         int                        `json:"from_visit,omitempty"`
 }
 
 type SourcePreservationReceipt struct {
@@ -52,9 +66,16 @@ type SourceRecoveryPreparer interface {
 // RecoverCorrections routes an already validated, returned source rejection.
 // It never repeats the rejected check, changes a definition, or grants attempts.
 func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
-	args, _ := json.Marshal(req)
+	req = Clone(req)
+	args, err := correctionRecoveryArgs(req)
+	if err != nil {
+		return Run{}, err
+	}
 	c.mu.Lock()
 	if r, ok, err := c.replay(req.RequestID, "recover_corrections", args); ok || err != nil {
+		if ok && err == nil {
+			r, err = c.reconcileCorrectionReplay(r, req)
+		}
 		c.mu.Unlock()
 		return r, err
 	}
@@ -86,6 +107,9 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	// Source validation runs without holding the coordinator lock. Cancellation,
 	// another control action or cleanup changes make this snapshot stale.
 	if replay, ok, err := c.replay(req.RequestID, "recover_corrections", args); ok || err != nil {
+		if ok && err == nil {
+			replay, err = c.reconcileCorrectionReplay(replay, req)
+		}
 		return replay, err
 	}
 	if err != nil {
@@ -93,6 +117,10 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	}
 	if current, ok := c.runs[r.ID]; !ok || current.Revision != r.Revision {
 		return Run{}, errors.New("run changed during source validation; inspect before recovery")
+	}
+	// Recheck all candidate/check/context bindings after source validation.
+	if _, _, _, err := c.correctionRecovery(req); err != nil {
+		return Run{}, err
 	}
 	r.CorrectionRecovery = &CorrectionRecovery{
 		RequestID:    req.RequestID,
@@ -104,6 +132,33 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 		GrantedAt:    time.Now().UTC(),
 		Preservation: preservation,
 		WithinBudget: req.WithinBudget,
+		CurrentRoute: req.CurrentRoute,
+	}
+	var artifacts []Artifact
+	if req.CurrentRoute {
+		grant := r.CorrectionRecovery
+		grant.Revision = req.Revision
+		grant.Route = r.Process.Steps[r.Step].ID + "/changes_requested"
+		grant.PreviousUses = r.RouteUses[grant.Route]
+		grant.PatchSHA256, grant.CheckSHA256 = req.PatchSHA256, req.CheckSHA256
+		grant.CheckID = r.Current().End.Result.Outputs["artifact"].ArtifactID
+		_, definition, err := MarshalRunRecord(r)
+		if err != nil {
+			return Run{}, err
+		}
+		grant.DefinitionSHA256 = correctionDigest(definition)
+		if req.Context != nil {
+			grant.Context = &CorrectionContext{
+				ID:     r.ID + "/correction-context-" + req.Context.SHA256 + ".json",
+				Bytes:  req.Context.Bytes,
+				SHA256: req.Context.SHA256,
+				Roles:  Clone(req.Context.Roles),
+			}
+			if err := c.disk.Write("artifacts/"+grant.Context.ID, []byte(req.Context.Content), c.disk.Policy.MaxArtifact); err != nil {
+				return Run{}, err
+			}
+			artifacts = append(artifacts, Artifact{ID: grant.Context.ID, RunID: r.ID, ProjectID: r.ProjectID, Bytes: grant.Context.Bytes})
+		}
 	}
 	if req.WithinBudget {
 		r.CorrectionRecovery.RemainingAttempts = c.familyRemaining(r)
@@ -112,12 +167,18 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 	if r.Status != "Queued" {
 		return Run{}, fmt.Errorf("saved correction cannot advance: %s", r.Reason)
 	}
+	if req.CurrentRoute {
+		r.CorrectionRecovery.FromVisit = r.Visit
+	}
 	r.ResourcesReleased = false // Normal owner preparation validates/restores source.
 	if req.PreserveSource {
 		r.CleanupBlocked, r.CleanupError = false, ""
 	}
 	receipt := Receipt{Key: req.RequestID, Kind: "recover_corrections", Args: args, RunID: r.ID}
-	if err := c.persist(r, nil, &receipt); err != nil {
+	if err := c.persist(r, artifacts, &receipt); err != nil {
+		if replay, committed, replayErr := c.replay(req.RequestID, "recover_corrections", args); committed && replayErr == nil {
+			return c.reconcileCorrectionReplay(replay, req)
+		}
 		return Run{}, err
 	}
 	c.Wake()
@@ -136,7 +197,13 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	reject := func(reason string) (Run, SourceResult, map[string]int, error) {
 		return Run{}, SourceResult{}, nil, errors.New(reason)
 	}
-	if req.WithinBudget {
+	if req.CurrentRoute {
+		if req.WithinBudget || req.PreserveSource || req.Revision < 1 || req.Revision != r.Revision || !validCorrectionSHA(req.PatchSHA256) || !validCorrectionSHA(req.CheckSHA256) {
+			return reject("current_route requires exact revision, patch/check SHA256 and settled source, without other recovery modes")
+		}
+	} else if req.Revision != 0 || req.PatchSHA256 != "" || req.CheckSHA256 != "" || req.Context != nil {
+		return reject("exact correction bindings and supplemental context require current_route")
+	} else if req.WithinBudget {
 		if req.MaxUses != 0 || req.PreserveSource || r.Task != nil {
 			return reject("within_budget requires settled root recovery without max_uses or preserve_source")
 		}
@@ -158,8 +225,11 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	}
 	key := r.Process.Steps[r.Step].ID + "/changes_requested"
 	route, eligible := sourceCorrectionRoute(r, r.Step)
-	if !eligible || !req.WithinBudget && route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
+	if !eligible || !req.WithinBudget && !req.CurrentRoute && route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
 		return reject("current failure is not an exhausted eligible source-correction route")
+	}
+	if req.CurrentRoute && req.MaxUses != r.RouteUses[key]+1 {
+		return reject("current_route permits exactly one additional use of only the exhausted route")
 	}
 	if c.workLimitsEnabled() && len(r.Attempts) >= r.Process.MaxAttempts {
 		return reject("original total attempt allowance is exhausted")
@@ -230,6 +300,25 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		return reject("source rejection provenance differs from the latest retained candidate")
 	}
 	limits := map[string]int{}
+	if req.CurrentRoute {
+		if err := c.correctionArtifactDigest(r, source.PatchID, req.PatchSHA256); err != nil {
+			return reject(err.Error())
+		}
+		checkID := a.End.Result.Outputs["artifact"].ArtifactID
+		if checkID == "" {
+			return reject("current_route needs its saved check artifact")
+		}
+		if err := c.correctionArtifactDigest(r, checkID, req.CheckSHA256); err != nil {
+			return reject(err.Error())
+		}
+		if req.Context != nil {
+			if err := validateCorrectionContext(r, req.Context, c.disk.Policy.MaxArtifact); err != nil {
+				return reject(err.Error())
+			}
+		}
+		limits[key] = req.MaxUses
+		return r, *source, limits, nil
+	}
 	if req.WithinBudget {
 		if err := c.correctionBudgetReserve(r, taskStepIndex(r.Process, route.Next)); err != nil {
 			return reject(err.Error())
@@ -292,6 +381,11 @@ func sourceCorrectionRoute(r Run, index int) (Route, bool) {
 func routeLimit(r Run, index int, outcome string, route Route) int {
 	if outcome == "changes_requested" && r.CorrectionRecovery != nil {
 		key := r.Process.Steps[index].ID + "/" + outcome
+		if recovery := r.CorrectionRecovery; recovery.CurrentRoute && !recovery.WithinBudget && recovery.Route == key && recovery.MaxUses == recovery.PreviousUses+1 && recovery.RouteLimits[key] == recovery.MaxUses {
+			if _, ok := sourceCorrectionRoute(r, index); ok {
+				return recovery.MaxUses
+			}
+		}
 		if recovery := r.CorrectionRecovery; recovery.WithinBudget && recovery.MaxUses == 0 {
 			if limit := recovery.RouteLimits[key]; limit > 0 && limit <= r.Process.MaxAttempts {
 				if _, ok := sourceCorrectionRoute(r, index); ok {

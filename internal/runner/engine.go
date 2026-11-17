@@ -899,6 +899,10 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Outcomes:      stepOutcomes(step),
 		Deadline:      a.Deadline,
 	}
+	assignment.RecoveryContext, e = c.correctionAssignmentContext(r, a)
+	if e != nil {
+		return Assignment{}, e
+	}
 	if r.TaskGraph != nil {
 		if err := graphProfile(p, r.TaskGraph.WritePaths); err != nil {
 			return Assignment{}, err

@@ -17,9 +17,10 @@ import (
 )
 
 type correctionRecoveryExecutor struct {
-	started        chan runner.Assignment
-	cleanupEntered chan string
-	validate       func(context.Context, runner.Run, runner.SourceResult) error
+	started           chan runner.Assignment
+	cleanupEntered    chan string
+	runCleanupEntered chan string
+	validate          func(context.Context, runner.Run, runner.SourceResult) error
 }
 
 func (e *correctionRecoveryExecutor) Start(_ context.Context, a runner.Assignment) (runner.Observation, error) {
@@ -38,6 +39,15 @@ func (e *correctionRecoveryExecutor) Release(ctx context.Context, id string) err
 	}
 	return nil
 }
+func (e *correctionRecoveryExecutor) ReleaseRun(ctx context.Context, r runner.Run) error {
+	if e.runCleanupEntered != nil {
+		e.runCleanupEntered <- r.ID
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+func (*correctionRecoveryExecutor) ForgetRun(context.Context, string) error { return nil }
 func (e *correctionRecoveryExecutor) ValidateSourceRecovery(ctx context.Context, r runner.Run, s runner.SourceResult) error {
 	if e.validate != nil {
 		return e.validate(ctx, r, s)
@@ -128,6 +138,9 @@ func correctionRecoveryRig(t *testing.T, change func(*runner.Run, *runner.Recove
 		t.Fatal(err)
 	}
 	executor := &correctionRecoveryExecutor{started: make(chan runner.Assignment, 4)}
+	if !r.ResourcesReleased {
+		executor.runCleanupEntered = make(chan string, 1)
+	}
 	for _, attempt := range r.Attempts {
 		if !attempt.Released {
 			// Preserve the negative fixture's unfinished cleanup until Core

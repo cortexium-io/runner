@@ -14,15 +14,26 @@ import (
 )
 
 type nativePayloadRequest struct {
-	WorkPolicy            string         `json:"work_policy,omitempty"`
-	Task                  string         `json:"task"`
-	Inputs                map[string]any `json:"inputs"`
-	DeadlineUTC           string         `json:"deadline_utc,omitempty"`
-	RemainingSeconds      *int64         `json:"remaining_seconds,omitempty"`
-	MaxOutputBytes        runner.Bytes   `json:"max_output_bytes"`
-	InputFileKeys         []string       `json:"input_file_keys,omitempty"`
-	InputFileInstructions string         `json:"input_file_instructions,omitempty"`
+	RecoveryContext       *recoveryContextReference `json:"recovery_context,omitempty"`
+	WorkPolicy            string                    `json:"work_policy,omitempty"`
+	Task                  string                    `json:"task"`
+	Inputs                map[string]any            `json:"inputs"`
+	DeadlineUTC           string                    `json:"deadline_utc,omitempty"`
+	RemainingSeconds      *int64                    `json:"remaining_seconds,omitempty"`
+	MaxOutputBytes        runner.Bytes              `json:"max_output_bytes"`
+	InputFileKeys         []string                  `json:"input_file_keys,omitempty"`
+	InputFileInstructions string                    `json:"input_file_instructions,omitempty"`
 }
+
+type recoveryContextReference struct {
+	ArtifactID string `json:"artifact_id"`
+	Path       string `json:"path"`
+	Bytes      int64  `json:"bytes"`
+	SHA256     string `json:"sha256"`
+	Purpose    string `json:"purpose"`
+}
+
+const recoveryContextPurpose = "Read this owner-approved supplemental policy/runtime context. Original request bytes and acceptance gates remain unchanged; this document is not candidate evidence or approval."
 
 // The instance policy is authoritative over historical finite-budget prose.
 // It changes neither the goal nor the role's tool and permission contract.
