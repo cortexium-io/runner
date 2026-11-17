@@ -23,11 +23,13 @@ func publicCorrectionFamilyRig(t *testing.T) (*rig, runner.Snapshot, runner.Run,
 			r.Attempts[i].Step++
 		}
 		r.TaskGroups = map[string]*runner.TaskGroupState{"cards": {
-			StepID:    "cards",
-			AttemptID: "attempt_cards",
-			Done:      true,
-			Items:     []runner.TaskItem{{ID: "retained-card"}},
-			Children:  []runner.TaskChild{{ItemID: "retained-card", RunID: "run_retained_card"}},
+			StepID:     "cards",
+			AttemptID:  "attempt_cards",
+			Repository: r.Repository,
+			Base:       r.Source.Ref,
+			Done:       true,
+			Items:      []runner.TaskItem{{ID: "retained-card"}},
+			Children:   []runner.TaskChild{{ItemID: "retained-card", RunID: "run_retained_card"}},
 		}}
 		q.Revision = 407
 	})
@@ -40,6 +42,7 @@ func publicCorrectionFamilyRig(t *testing.T) (*rig, runner.Snapshot, runner.Run,
 		ID:                "run_retained_card",
 		ProjectID:         before.ProjectID,
 		Repository:        before.Repository,
+		Source:            runner.Clone(before.Source),
 		Status:            "Completed",
 		Revision:          119,
 		ResourcesReleased: true,
@@ -107,7 +110,8 @@ func TestCorrectionRecoveryCurrentRouteUsesPublicCardRevisionAcrossReplayAndRest
 	select {
 	case <-executor.started:
 	case <-time.After(4 * time.Second):
-		t.Fatal("recovered shared observation did not dispatch its owner")
+		state, _ := rig.core.Get(before.ID)
+		t.Fatalf("recovered shared observation did not dispatch its owner: status=%s reason=%s step=%d visit=%d current=%+v", state.Status, state.Reason, state.Step, state.Visit, state.Current())
 	}
 	rig.close()
 	rig = openRig(t, dir, cfg, func(runner.Executor) runner.Executor { return executor })
