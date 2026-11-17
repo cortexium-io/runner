@@ -39,7 +39,12 @@ func validAmendedModel(model string) bool {
 // A settled child's definition remains historical proof. Its next visit uses
 // the root's explicit model amendment, never a global model-name alias.
 func (c *Core) amendedVisitModel(r Run, a Attempt, roleID, original string) string {
-	if a.Started.IsZero() {
+	role := r.Roles[roleID]
+	selected := a.Profile
+	if selected == "" {
+		selected = role.DefaultProfile
+	}
+	if a.Started.IsZero() || role.Execution == nil || selected != "" && selected != "default" {
 		return original
 	}
 	root, err := c.taskRoot(r)

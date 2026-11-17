@@ -61,8 +61,21 @@ func TestRoleModelAmendmentPreservesHistoryAndChangesOnlyFutureSelection(t *test
 				if got := c.amendedVisitModel(child, Attempt{Started: grant.GrantedAt.Add(time.Second)}, "reader", old); got != req.RoleModels["reader"] {
 					t.Fatal("future retained-child visit did not use audited selection", got)
 				}
-				if got := c.amendedVisitModel(child, Attempt{Started: grant.GrantedAt.Add(-time.Second)}, "lead", old); got != old {
+				if got := c.amendedVisitModel(child, Attempt{Started: grant.GrantedAt.Add(-time.Second)}, "reader", old); got != old {
 					t.Fatal("audit relabelled a past visit", got)
+				}
+				role := child.Roles["reader"]
+				fallback := *role.Execution
+				fallback.Model = "distinct-fallback-model"
+				role.Profiles = map[string]Profile{"fallback": fallback}
+				child.Roles["reader"] = role
+				if got := c.amendedVisitModel(child, Attempt{Started: grant.GrantedAt.Add(time.Second), Profile: "fallback"}, "reader", fallback.Model); got != fallback.Model {
+					t.Fatal("default amendment overwrote an explicit named profile", got)
+				}
+				role.DefaultProfile = "fallback"
+				child.Roles["reader"] = role
+				if got := c.amendedVisitModel(child, Attempt{Started: grant.GrantedAt.Add(time.Second)}, "reader", fallback.Model); got != fallback.Model {
+					t.Fatal("default amendment overwrote a named default selector", got)
 				}
 			}
 			reopened, err := New(t.Context(), store, c.executor, c.disk, c.snapshot)
