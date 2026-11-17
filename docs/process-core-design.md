@@ -38,6 +38,23 @@ behavior, and SQLite refusal/lost-acknowledgement/lost-read/restart/old-receipt
 reconciliation. Installation and the real use-eight continuation remain owned by
 the coordinating session after integration and independent review.
 
+Source `c0b90794711e` is integrated and qualified: ordinary Core/SQLite/control/
+CLI race tests and vet, affected execution/frontend-reference checks, 43 Node
+tests, finite-family reserve regressions, and headless CFT 158.0.8127.18 synthetic
+phone/desktop transport all pass. Independent Core/access and assembler reviews
+found no actionable findings. Four isolated descriptor setup rejections occurred
+before browser execution; corrected fixture configuration and final passing logs
+are retained in `pocket-hideout-recovery/handoff-recovery/`. This is transport and
+recovery proof, not product or model-vision acceptance.
+
+The binary and fixed launcher are prepared but not installed. The active Sudoku
+physical-verification goal owns the shared runtime until a genuinely settled
+blocker or terminal handoff; do not take a stage gap or delay that goal. The
+coordinating owner will notify this session with current preview/database/goal
+identities. Exact install and stable-ID final-use re-entry helpers are prepared;
+the existing approval covers them. The ad remains settled at public revision 676,
+seven uses spent under ceiling eight, with the same retained source and failures.
+
 ### Verification lifecycle correction, authorised 17 November 2026
 
 The real reuse qualification now passes: one fixed check executed the remaining
