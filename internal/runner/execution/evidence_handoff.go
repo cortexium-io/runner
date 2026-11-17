@@ -73,16 +73,26 @@ func handoffArchive(data []byte) (handoffLauncher, map[string][]byte, error) {
 	raw := bytes.NewReader(unpacked)
 	archive := tar.NewReader(raw)
 	files := map[string][]byte{}
+	var padding int
 	for {
 		remaining := raw.Len()
 		h, err := archive.Next()
 		if err == io.EOF {
-			if remaining-raw.Len() < 1024 {
+			if remaining-raw.Len() != padding+1024 {
 				return manifest, nil, bad
 			}
 			break
 		}
-		if err != nil || h.Typeflag != tar.TypeReg || h.Format != tar.FormatUSTAR || !handoffProofName.MatchString(h.Name) || h.Size < 1 || h.Size > 8<<20 || len(files) >= 65 {
+		// Go reports FormatUnknown for the installed macOS USTAR writer's
+		// space-terminated size and timestamp. Check the wire signature and
+		// require exactly one direct header. archive/tar checks the checksum.
+		if err != nil || remaining-raw.Len() != padding+512 || h.Typeflag != tar.TypeReg || !handoffProofName.MatchString(h.Name) || h.Size < 1 || h.Size > 8<<20 || len(files) >= 65 {
+			return manifest, nil, bad
+		}
+		end := len(unpacked) - raw.Len()
+		header := unpacked[end-512 : end]
+		if string(header[257:265]) != "ustar\x0000" || header[156] != tar.TypeReg ||
+			len(bytes.Trim(header[157:257], "\x00")) != 0 || len(bytes.Trim(header[345:500], "\x00")) != 0 {
 			return manifest, nil, bad
 		}
 		if _, duplicate := files[h.Name]; duplicate {
@@ -100,6 +110,7 @@ func handoffArchive(data []byte) (handoffLauncher, map[string][]byte, error) {
 			return manifest, nil, bad
 		}
 		files[h.Name] = file
+		padding = int((512 - h.Size%512) % 512)
 	}
 	trailing, _ := io.ReadAll(raw)
 	if len(bytes.Trim(trailing, "\x00")) != 0 || json.Unmarshal(files["launcher.json"], &manifest) != nil || manifest.Version != 1 || manifest.Status != "ready" && manifest.Status != "changes_requested" && manifest.Status != "blocked" {

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -16,6 +17,26 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+func TestEvidenceHandoffReadsInstalledUSTARWriter(t *testing.T) {
+	dir := t.TempDir()
+	const launcher = `{"version":1,"status":"changes_requested"}`
+	if err := os.WriteFile(filepath.Join(dir, "launcher.json"), []byte(launcher), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "fixture.tar.gz")
+	cmd := exec.CommandContext(t.Context(), "/usr/bin/tar", "--format=ustar", "-czf", output, "-C", dir, "launcher.json")
+	if diagnostic, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("produce USTAR: %v: %s", err, diagnostic)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := handoffArchive(data); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func handoffTestArchive(t *testing.T, files map[string][]byte) []byte {
 	t.Helper()
