@@ -393,6 +393,21 @@ inside Runner; no merge or production approval follows. Canonical evidence is in
 `pocket-hideout-recovery/verifier-repair-phase/`, tracked by
 [Runner issue 133](https://github.com/cortexium-io/runner/issues/133).
 
+Correction 6 subsequently built the real app (94 output files), passed 18 focused
+tests and produced six current phone/desktop screenshots. Its controlled browser
+report passed 1,174 assertions and rejected 28 text-containment assertions. Core
+correctly entered correction 7 within the phase. That owner then returned blocked:
+the fixed assembler admitted only launcher/focused/project-diagnostic metadata to
+the source worker, omitting the actual project report and screenshots, although
+their exact producer artifact/hash remained registered. Source/candidate tree was
+unchanged. The same root is settled Failed at public revision 676, spending 7 under
+ceiling 8. One authorized correction remains; no additional budget was granted.
+An exact read-only evidence handoff plus scoped re-entry requires a separate owner
+decision because no configured blocked-owner recovery supplies that report while
+preserving all other limits. Canonical `handoff-blocker.json` records the exact
+candidate, failed owner, aggregate and producer identities. No artifact/history
+rewriting, outside product check or unlinked ad run is an acceptable substitute.
+
 The separate Pocket Hideout house-ad request cannot use the fixed historical
 mobile review reference. The owner explicitly approved correcting intake and
 continuing through the complete frontend process. A new project-owned fixed
