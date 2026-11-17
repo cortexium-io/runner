@@ -18,6 +18,7 @@ type frontendRecheckStore struct {
 	Store
 	artifacts map[string]Artifact
 	receipts  map[string]Receipt
+	runs      map[string]Run
 	saves     int
 }
 
@@ -37,12 +38,24 @@ func (s *frontendRecheckStore) FindReceipt(_ context.Context, id string) (Receip
 	return r, nil
 }
 
-func (s *frontendRecheckStore) Save(_ context.Context, _ Run, _ []Artifact, receipt *Receipt) error {
+func (s *frontendRecheckStore) Save(_ context.Context, r Run, _ []Artifact, receipt *Receipt) error {
 	s.saves++
+	if s.runs == nil {
+		s.runs = map[string]Run{}
+	}
+	s.runs[r.ID] = Clone(r)
 	if receipt != nil {
 		s.receipts[receipt.Key] = Clone(*receipt)
 	}
 	return nil
+}
+
+func (s *frontendRecheckStore) Load(context.Context) ([]Run, error) {
+	var rows []Run
+	for _, r := range s.runs {
+		rows = append(rows, Clone(r))
+	}
+	return rows, nil
 }
 
 type frontendRecheckExecutor struct {

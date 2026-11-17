@@ -85,6 +85,15 @@ func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testin
 					q.MaxUses = 5
 				}
 			})
+			var first runner.RecoverCorrectionsRequest
+			if prior := before.CorrectionRecovery; prior != nil {
+				first = runner.RecoverCorrectionsRequest{RequestID: prior.RequestID, RunID: before.ID, AttemptID: prior.AttemptID, CurrentRoute: true, Revision: before.Revision - 1, MaxUses: prior.MaxUses, PatchSHA256: strings.Repeat("c", 64), CheckSHA256: strings.Repeat("d", 64)}
+				args, _ := json.Marshal(first)
+				if err := rig.store.Save(t.Context(), before, nil, &runner.Receipt{Key: first.RequestID, Kind: "recover_corrections", Args: args, RunID: before.ID}); err != nil {
+					rig.close()
+					t.Fatal(err)
+				}
+			}
 			rig.core.Close()
 			store := &correctionCommitStore{Store: rig.store, mode: mode}
 			core, err := runner.New(t.Context(), store, executor, rig.disk, cfg)
@@ -103,6 +112,12 @@ func TestCorrectionRecoveryCurrentRouteCommitRefusalAndUncertainReplay(t *testin
 					got, _ := core.Get(before.ID)
 					if !reflect.DeepEqual(got.CorrectionRecovery, before.CorrectionRecovery) || got.Status != "Failed" || got.RouteUses["check/changes_requested"] != before.RouteUses["check/changes_requested"] {
 						t.Fatal("refused commit granted work")
+					}
+				}
+				if scenario == "successive-lost-read" {
+					oldReplay, replayErr := core.RecoverCorrections(first)
+					if replayErr != nil || oldReplay.CorrectionRecovery.RequestID != req.RequestID || oldReplay.RouteUses["check/changes_requested"] != 5 {
+						t.Fatal("older receipt did not reconcile committed newer grant", replayErr)
 					}
 				}
 				recovered, err = core.RecoverCorrections(req)

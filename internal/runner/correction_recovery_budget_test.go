@@ -100,6 +100,10 @@ func finishBudgetCorrectionOwner(t *testing.T, c *Core, store *frontendRecheckSt
 	if r.Status != "Queued" || r.Process.Steps[r.Step].ID != "check" {
 		t.Fatal("correction skipped its fresh ordinary check", r.Status, r.Reason)
 	}
+	if err := c.persist(*r, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	*r = Clone(c.runs[r.ID])
 }
 
 func finishBudgetCorrectionCheck(t *testing.T, c *Core, store *frontendRecheckStore, r *Run, number int, pass bool) {
@@ -141,6 +145,10 @@ func finishBudgetCorrectionCheck(t *testing.T, c *Core, store *frontendRecheckSt
 	for _, artifact := range c.finish(r, len(r.Attempts)-1) {
 		store.artifacts[artifact.ID] = artifact
 	}
+	if err := c.persist(*r, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	*r = Clone(c.runs[r.ID])
 }
 
 func TestCorrectionRecoveryWithinBudgetFinishesRepeatedCorrections(t *testing.T) {

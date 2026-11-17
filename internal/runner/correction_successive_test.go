@@ -20,7 +20,10 @@ func successiveCorrectionFixture(t *testing.T) (*Core, *frontendRecheckStore, Ru
 		t.Fatal("first grant did not stop at its exact bound", r.Status, r.Reason)
 	}
 	r.ResourcesReleased = true // Simulate terminal lifecycle cleanup settlement.
-	c.runs[r.ID] = Clone(r)
+	if err := c.persist(r, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	r = Clone(c.runs[r.ID])
 	next := Clone(first)
 	next.RequestID, next.PreviousRequestID = "second-explicit-one-use-grant", first.RequestID
 	next.AttemptID, next.Revision, next.MaxUses = r.Current().ID, c.outputRun(r).Revision, 5

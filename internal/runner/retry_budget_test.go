@@ -37,7 +37,9 @@ func TestWithinBudgetRetryPreservesCapAndCompletionReserve(t *testing.T) {
 			r := openRig(t, dir, s, nil)
 			defer func() { r.close() }()
 			run := begin(t, r.core, "initial-within-budget", "demo")
-			before := await(t, r.core, run.ID, released)
+			before := await(t, r.core, run.ID, func(run runner.Run) bool {
+				return released(run) && run.ResourcesReleased
+			})
 			for _, invalid := range []runner.RetryRequest{
 				{RequestID: "empty-within-budget", RunID: run.ID, WithinBudget: true},
 				{RequestID: "cleanup-within-budget", RunID: run.ID, WithinBudget: true, ExtraAttempts: 1, CleanupOnly: true},

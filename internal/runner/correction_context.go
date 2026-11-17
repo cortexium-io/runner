@@ -78,12 +78,8 @@ func (c *Core) correctionArtifactDigest(r Run, id, expected string) error {
 // A lost commit acknowledgement must not leave the in-memory failed snapshot
 // authorising another operation over a durably committed recovery.
 func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (Run, error) {
-	if grant := correctionGrant(r.CorrectionRecovery, req.RequestID); grant != nil {
-		if req.CurrentRoute {
-			return c.outputRun(r), nil
-		}
-		return r, nil
-	}
+	// Always consult durable state. An earlier receipt may be replayed after a
+	// newer grant committed without acknowledgement, leaving memory behind.
 	rows, err := c.store.Load(c.ctx)
 	if err != nil {
 		return Run{}, fmt.Errorf("committed correction recovery needs reconciliation: %w", err)
@@ -96,11 +92,13 @@ func (c *Core) reconcileCorrectionReplay(r Run, req RecoverCorrectionsRequest) (
 		if grant == nil || grant.AttemptID != req.AttemptID || grant.MaxUses != req.MaxUses || grant.CurrentRoute != req.CurrentRoute || saved.Revision < r.Revision {
 			return Run{}, errors.New("committed correction recovery does not match its receipt")
 		}
-		c.runs[saved.ID] = saved
-		c.maintenanceError = ""
-		close(c.changed)
-		c.changed = make(chan struct{})
-		c.Wake()
+		if saved.Revision > r.Revision {
+			c.runs[saved.ID] = saved
+			c.maintenanceError = ""
+			close(c.changed)
+			c.changed = make(chan struct{})
+			c.Wake()
+		}
 		if req.CurrentRoute {
 			return c.outputRun(saved), nil
 		}

@@ -54,6 +54,14 @@ definitions, other retries and protected approvals remain unchanged. Reuse its
 request ID after uncertain responses. It cannot combine with `--within-budget`
 or source preservation.
 
+A separately authorized successive grant on the same exhausted route must also
+supply `--previous-request-id` naming the current grant. Each action still adds
+exactly one use and requires a fresh owner candidate and rejection, with the exact
+current public revision and hashes. Previous grants and context artifacts remain
+retained. Replaying either request reconciles durable state without another grant;
+it does not infer permission for a further correction. Omitted supplemental context
+retains the preceding grant's context and recipients.
+
 When approved, `--context-file`, `--context-sha256` and `--context-roles` supply one
 bounded supplemental JSON artifact to explicit future source/review actors. This
 does not replace original inputs or make the context a candidate approval. The
