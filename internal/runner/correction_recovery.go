@@ -300,8 +300,17 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	if profile.Harness != "release" && inputs["patch"].ArtifactID != source.PatchID {
 		return reject("source rejection does not identify the latest retained candidate")
 	}
-	if a.Source != nil && (a.Source.InputPatchID != source.PatchID || a.Source.Repository != source.Repository || a.Source.Base != source.Base || a.Source.WorkDir != source.WorkDir) {
-		return reject("source rejection provenance differs from the latest retained candidate")
+	if a.Source != nil {
+		inputPatchID := a.Source.InputPatchID
+		if inputPatchID == "" && profile.Harness == "command" && profile.Mode == "shared" && profile.Access == "workspace-read" && a.Source.AttemptID == a.ID && r.Process.Steps[r.Step].Inputs["patch"].FromCandidate && r.StepInputs != nil {
+			// Shared commands authenticate their prepared candidate before execution,
+			// but older observations omit the duplicate input patch stamp. Use only
+			// the persisted current-step binding; never reconstruct missing history.
+			inputPatchID = r.StepInputs["patch"].ArtifactID
+		}
+		if inputPatchID != source.PatchID || a.Source.Repository != source.Repository || a.Source.Base != source.Base || a.Source.WorkDir != source.WorkDir {
+			return reject("source rejection provenance differs from the latest retained candidate")
+		}
 	}
 	limits := map[string]int{}
 	if req.CurrentRoute {

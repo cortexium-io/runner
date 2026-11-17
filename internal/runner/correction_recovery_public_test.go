@@ -3,6 +3,7 @@ package runner_test
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 	"github.com/cortexium-io/runner/internal/runner/sqlite"
@@ -12,6 +13,7 @@ func publicCorrectionFamilyRig(t *testing.T) (*rig, runner.Snapshot, runner.Run,
 	t.Helper()
 	rig, cfg, before, req, executor, dir := correctionRecoveryRig(t, func(r *runner.Run, q *runner.RecoverCorrectionsRequest) {
 		currentCorrectionFixture(r, q)
+		sharedCorrectionObservation(r)
 		r.Revision = 288
 		// The retained source-card collection is complete. Its child contributes
 		// operational revision119; no new card or product proof is executed here.
@@ -78,6 +80,14 @@ func TestCorrectionRecoveryCurrentRouteUsesPublicCardRevisionAcrossReplayAndRest
 		t.Fatal("grant returned an uncommitted/private revision or changed spending", recovered.Revision)
 	}
 	grant := runner.Clone(recovered.CorrectionRecovery)
+	for i, old := range before.Attempts {
+		if !reflect.DeepEqual(recovered.Attempts[i].Source, old.Source) || !reflect.DeepEqual(recovered.Attempts[i].End, old.End) {
+			t.Fatal("recovery rewrote retained provenance or evidence")
+		}
+	}
+	if before.Current().Source.InputPatchID != "" {
+		t.Fatal("fixture must retain the shared command's missing duplicate stamp")
+	}
 	assertPublicReplay := func(core *runner.Core) {
 		t.Helper()
 		first, err := core.Get(before.ID)
@@ -94,8 +104,64 @@ func TestCorrectionRecoveryCurrentRouteUsesPublicCardRevisionAcrossReplayAndRest
 		}
 	}
 	assertPublicReplay(rig.core)
+	select {
+	case <-executor.started:
+	case <-time.After(4 * time.Second):
+		t.Fatal("recovered shared observation did not dispatch its owner")
+	}
 	rig.close()
 	rig = openRig(t, dir, cfg, func(runner.Executor) runner.Executor { return executor })
 	defer rig.close()
 	assertPublicReplay(rig.core)
+	if len(executor.started) != 0 {
+		t.Fatal("same grant dispatched multiple owners")
+	}
+}
+
+func sharedCorrectionObservation(r *runner.Run) {
+	r.Roles["check"].Execution.Mode = "shared"
+	r.Current().Source.InputPatchID = ""
+}
+
+func TestCorrectionRecoverySharedObservationRejectsUnboundOrConflictingSource(t *testing.T) {
+	for _, mode := range []string{"explicit-patch", "missing-inputs", "wrong-input", "missing-candidate-binding", "other-harness", "other-mode", "other-access", "other-attempt", "repository", "base", "work-dir"} {
+		t.Run(mode, func(t *testing.T) {
+			rig, _, before, req, executor, _ := correctionRecoveryRig(t, func(r *runner.Run, q *runner.RecoverCorrectionsRequest) {
+				currentCorrectionFixture(r, q)
+				sharedCorrectionObservation(r)
+				switch mode {
+				case "explicit-patch":
+					r.Current().Source.InputPatchID = "another/changes.patch"
+				case "missing-inputs":
+					r.StepInputs = nil
+				case "wrong-input":
+					r.StepInputs["patch"] = runner.Value{ArtifactID: "another/changes.patch"}
+				case "missing-candidate-binding":
+					delete(r.Process.Steps[r.Step].Inputs, "patch")
+				case "other-harness":
+					r.Roles["check"].Execution.Harness = "codex"
+				case "other-mode":
+					r.Roles["check"].Execution.Mode = ""
+				case "other-access":
+					r.Roles["check"].Execution.Access = "input-only"
+				case "other-attempt":
+					r.Current().Source.AttemptID = "another-attempt"
+				case "repository":
+					r.Current().Source.Repository += "-other"
+				case "base":
+					r.Current().Source.Base = "another-base"
+				case "work-dir":
+					r.Current().Source.WorkDir += "-other"
+				}
+			})
+			defer rig.close()
+			if _, err := rig.core.RecoverCorrections(req); err == nil {
+				t.Fatal("unbound or conflicting source was accepted")
+			}
+			got, err := rig.core.Get(before.ID)
+			if err != nil || got.CorrectionRecovery != nil || got.Status != "Failed" || got.RouteUses["check/changes_requested"] != 3 || !reflect.DeepEqual(got.Attempts, before.Attempts) || len(executor.started) != 0 {
+				t.Fatal("rejected recovery changed history or dispatched work", err)
+			}
+		})
+	}
 }
